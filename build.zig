@@ -28,7 +28,9 @@ fn emSdkSetupStep(b: *std.Build, emsdk: *std.Build.Dependency) !?*std.Build.Step
 pub fn build(b: *std.Build) !void {
     var target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
+ const enable_logging = b.option(bool, "logging", "Enable logging") orelse true;
+    const enable_debug_logging = b.option(bool, "debug-logging", "Enable debug logging") orelse false;
+   
     if (target.result.os.tag == .emscripten) {
         target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
@@ -44,6 +46,8 @@ pub fn build(b: *std.Build) !void {
     const libusb_deb = b.dependency("libusb", .{
         .target = target,
         .optimize = optimize,
+        .logging = enable_logging,
+        .@"debug-logging" = enable_debug_logging,
     });
     const wifidriver_dep = b.dependency("devourer", .{
         .target = target,
@@ -120,13 +124,16 @@ pub fn build(b: *std.Build) !void {
                     "-sASYNCIFY",
                     "-sALLOW_MEMORY_GROWTH=1", // Added =1 to explicitly enable
                     "-sUSE_PTHREADS=1",
+                        "-sSHARED_MEMORY=0",  // Disable shared memory
+    "-sMEMORY64=0",  // Disable 64-bit memory
+
                     "-sPTHREAD_POOL_SIZE=2",
                     "-sWASM_MEM_MAX=2147483648", // 2GB maximum
                     "-sINITIAL_MEMORY=128MB", // Increased from 64MB
                     "-sSTACK_SIZE=16MB", // Increased from 5MB
                     "-sTOTAL_STACK=16MB", // Explicit stack size
                     "-sASSERTIONS=1", // Enable for debugging
-                    "-sSAFE_HEAP=1", // Add bounds checking
+                    //"-sSAFE_HEAP=1", // Add bounds checking
                     "-sINITIAL_MEMORY=128MB", // Double initial memory
                     "--bind",
                     "-lembind",
@@ -137,6 +144,23 @@ pub fn build(b: *std.Build) !void {
                 b.getInstallStep().dependOn(&emcc_command.step);
             }
         },
-        else => {},
+        else => {
+            const exe = b.addExecutable(.{
+                .name = "openipc-zig",
+                .target = target,
+                .optimize = optimize,
+            });
+            exe.addCSourceFile(.{
+                .file = b.path("src/wrapper.cpp"),
+                .flags = &.{
+                    "-std=gnu++20",
+                },
+            });
+            exe.linkLibrary(libusb);
+            exe.linkLibrary(wifidriver);
+            exe.linkLibC();
+            exe.linkLibCpp();
+            b.installArtifact(exe);
+        },
     }
 }

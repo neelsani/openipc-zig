@@ -7,13 +7,10 @@
 #include "RtlUsbAdapter.h"
 #include "WiFiDriver.h"
 
-#define USB_VENDOR_ID 0x148F
-#define USB_PRODUCT_ID 0x5372
+#define USB_VENDOR_ID 0x0B05
+#define USB_PRODUCT_ID 0x17D2
 
-static void packetProcessor(const Packet &packet)
-{
-	std::cout << "hello" << std::endl;
-}
+
 void listAllUsbDevices(std::shared_ptr<Logger> logger, libusb_context *ctx)
 {
 	libusb_device **devs;
@@ -79,7 +76,7 @@ int main()
 		libusb_exit(ctx);
 		return 1;
 	}
-	logger->error("HANDLE GOTTED HOORAY");
+	logger->error("HANDLE GOTTED HOORAY1");
 	// Check if the kernel driver attached
 	if (libusb_kernel_driver_active(dev_handle, 0))
 	{
@@ -92,6 +89,12 @@ int main()
 	WiFiDriver wifi_driver(logger);
 	auto rtlDevice = wifi_driver.CreateRtlDevice(dev_handle);
 	logger->error("RTL Created");
+	 auto packetProcessor = [logger](const Packet &packet) {
+        // Now “logger” is in scope here, because we captured it.
+        //logger->error("Got a packet of length {}", packet.RxAtrib.pkt_len);
+		
+        // …do whatever else you like with `packet` and `logger`…
+    };
 	rtlDevice->Init(packetProcessor, SelectedChannel{
 										 .Channel = 36,
 										 .ChannelOffset = 0,
