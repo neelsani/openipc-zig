@@ -37,12 +37,12 @@
     // internet connectivity.
     .dependencies = .{
         .libusb = .{
-            .url = "git+https://github.com/neelsani/libusb#fcd8bcee53e25a730045ee45f177632b8c015e04",
-            .hash = "libusb-1.0.29-zGe-yRhKAAAlEmvu0eu2IcuoGPdf-aXVQ4gkOnaeo8wL",
+            .url = "git+https://github.com/neelsani/libusb#498c91f7780ce8eb7008927143e0b4a185e28b75",
+            .hash = "libusb-1.0.29-zGe-yVBKAAAVpJp6MnGB3DiVwtHBTVBKEsn4CTVP-J0e",
         },
         .devourer = .{
-            .url = "git+https://github.com/neelsani/devourer#c73957c1b8ce551c50ad7606f0b34c0e533ed50f",
-            .hash = "devourer-0.0.0-bPdO1VwgFQB_OShNVtw0ZTZxTQdvRmFeJ1tek4gQhbvZ",
+            .url = "git+https://github.com/neelsani/devourer#f37df31b7440561b38e6d68a773ac17931997554",
+            .hash = "devourer-0.0.0-bPdO1VwgFQCMOF72CVZFNxtOAcK8HcIsZRqYObbWSIY0",
         },
         .emsdk = .{
             .url = "git+https://github.com/emscripten-core/emsdk?ref=4.0.9#3bcf1dcd01f040f370e10fe673a092d9ed79ebb5",
