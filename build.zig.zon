@@ -49,6 +49,10 @@
             .hash = "N-V-__8AAJl1DwBezhYo_VE6f53mPVm00R-Fk28NPW7P14EQ",
             .lazy = true,
         },
+        .libsodium = .{
+            .url = "git+https://github.com/neelsani/libsodium#a8c51529af5e52784e0683b7059259ef99455d81",
+            .hash = "libsodium-0.0.0-7bIJoPL6WgDnKihH7r8F3cxImQcpw0OkWPPItjoOFboc",
+        },
     },
     .paths = .{
         "build.zig",

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 fn createEmsdkStep(b: *std.Build, emsdk: *std.Build.Dependency) *std.Build.Step.Run {
     if (builtin.os.tag == .windows) {
         return b.addSystemCommand(&.{emsdk.path("emsdk.bat").getPath(b)});
@@ -8,8 +9,6 @@ fn createEmsdkStep(b: *std.Build, emsdk: *std.Build.Dependency) *std.Build.Step.
     }
 }
 
-const emccOutputDir = "zig-out" ++ std.fs.path.sep_str ++ "htmlout" ++ std.fs.path.sep_str;
-const emccOutputFile = "index.html";
 fn emSdkSetupStep(b: *std.Build, emsdk: *std.Build.Dependency) !?*std.Build.Step.Run {
     const dot_emsc_path = emsdk.path(".emscripten").getPath(b);
     const dot_emsc_exists = !std.meta.isError(std.fs.accessAbsolute(dot_emsc_path, .{}));
@@ -21,16 +20,12 @@ fn emSdkSetupStep(b: *std.Build, emsdk: *std.Build.Dependency) !?*std.Build.Step
         emsdk_activate.addArgs(&.{ "activate", "latest" });
         emsdk_activate.step.dependOn(&emsdk_install.step);
         return emsdk_activate;
-    } else {
-        return null;
     }
+    return null;
 }
+
 pub fn build(b: *std.Build) !void {
     var target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-    const enable_logging = b.option(bool, "logging", "Enable logging") orelse true;
-    const enable_debug_logging = b.option(bool, "debug-logging", "Enable debug logging") orelse false;
-
     if (target.result.os.tag == .emscripten) {
         target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
@@ -42,8 +37,12 @@ pub fn build(b: *std.Build) !void {
             .os_tag = .emscripten,
         });
     }
+    const optimize = b.standardOptimizeOption(.{});
+    const enable_logging = b.option(bool, "logging", "Enable logging") orelse true;
+    const enable_debug_logging = b.option(bool, "debug-logging", "Enable debug logging") orelse false;
 
-    const libusb_deb = b.dependency("libusb", .{
+    // Common dependencies
+    const libusb_dep = b.dependency("libusb", .{
         .target = target,
         .optimize = optimize,
         .logging = enable_logging,
@@ -54,106 +53,141 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const libusb = libusb_deb.artifact("usb-1.0");
+    const libsodium_dep = b.dependency("libsodium", .{
+        .target = target,
+        .optimize = optimize,
+        .@"test" = false,
+        .shared = false,
+    });
+
+    const sodium = libsodium_dep.artifact(if (target.result.isMinGW()) "libsodium-static" else "sodium");
+    const libusb = libusb_dep.artifact("usb-1.0");
     const wifidriver = wifidriver_dep.artifact("WiFiDriver");
-    switch (target.result.os.tag) {
-        .emscripten => {
-            const lib = b.addStaticLibrary(.{
-                .name = "lib",
-                // .root_source_file = b.path("src/main.zig"),
 
-                .target = b.resolveTargetQuery(.{
-                    .cpu_arch = .wasm32,
-                    .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
-                    .cpu_features_add = std.Target.wasm.featureSet(&.{
-                        .atomics,
-                        .bulk_memory,
-                    }),
-                    .os_tag = .emscripten,
-                }),
-                .link_libc = true,
-
-                .optimize = optimize,
-            });
-            lib.linkLibrary(libusb);
-            lib.linkLibrary(wifidriver);
-            //lib.linkLibCpp();
-            // Include emscripten for cross compilation
-            if (b.lazyDependency("emsdk", .{})) |dep| {
-                if (try emSdkSetupStep(b, dep)) |emSdkStep| {
-                    lib.step.dependOn(&emSdkStep.step);
-                }
-                lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include/c++/v1"));
-                lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include/compat"));
-                lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include"));
-                lib.addCSourceFile(.{ .file = b.path("src/wrapper.cpp"), .language = .cpp, .flags = &.{
-                    "-std=gnu++20",
-                } });
-                const emccExe = switch (builtin.os.tag) {
-                    .windows => "emcc.bat",
-                    else => "emcc",
-                };
-                var emcc_run_arg = try b.allocator.alloc(
-                    u8,
-                    dep.path("upstream/emscripten").getPath(b).len + emccExe.len + 1,
-                );
-                defer b.allocator.free(emcc_run_arg);
-
-                emcc_run_arg = try std.fmt.bufPrint(
-                    emcc_run_arg,
-                    "{s}" ++ std.fs.path.sep_str ++ "{s}",
-                    .{ dep.path("upstream/emscripten").getPath(b), emccExe },
-                );
-
-                const mkdir_command = b.addSystemCommand(&[_][]const u8{
-                    "mkdir",
-                    "-p",
-                    emccOutputDir,
-                });
-                const emcc_command = b.addSystemCommand(&[_][]const u8{emcc_run_arg});
-                emcc_command.addFileArg(lib.getEmittedBin());
-                emcc_command.addFileArg(wifidriver.getEmittedBin());
-                emcc_command.addFileArg(libusb.getEmittedBin());
-
-                emcc_command.step.dependOn(&lib.step);
-                emcc_command.step.dependOn(&mkdir_command.step);
-                emcc_command.addArgs(&[_][]const u8{
-                    "-o",
-                    emccOutputDir ++ emccOutputFile,
-                    "-pthread",
-                    "-sASYNCIFY",
-                    "-sALLOW_MEMORY_GROWTH=1",
-                    "-sINITIAL_MEMORY=128MB",
-                    "-sMAXIMUM_MEMORY=2GB",
-                    "-sSTACK_SIZE=5MB",
-                    "-sTOTAL_STACK=16MB",
-
-                    "--bind",
-                    "-lembind",
-                });
-
-                b.installArtifact(lib);
-
-                b.getInstallStep().dependOn(&emcc_command.step);
+    if (target.result.os.tag == .emscripten) {
+        const zig_lib = b.addStaticLibrary(.{
+            .name = "zig-functions",
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .link_libc = true,
+            .optimize = optimize,
+        });
+        // For Emscripten target, create a single library that combines everything
+        const lib = b.addStaticLibrary(.{
+            .name = "openipc-zig",
+            .target = target,
+            .link_libc = true,
+            .optimize = optimize,
+        });
+        lib.addIncludePath(b.path("src/wifi"));
+        // Add C++ wrapper if needed
+        lib.addCSourceFiles(.{
+            .files = &.{
+                "src/wrapper.cpp",
+                "src/wifi/WfbProcessor.cpp",
+                "src/wifi/WfbReceiver.cpp",
+            },
+            .language = .cpp,
+            .flags = &.{"-std=gnu++20"},
+        });
+        lib.root_module.addCMacro("__EMSCRIPTEN__", "");
+        lib.addCSourceFile(.{
+            .file = b.path("src/wifi/fec.c"),
+            .language = .c,
+        });
+        lib.linkLibrary(zig_lib);
+        // Link dependencies
+        lib.linkLibrary(libusb);
+        lib.linkLibrary(wifidriver);
+        lib.linkLibrary(sodium);
+        // Handle emscripten setup
+        if (b.lazyDependency("emsdk", .{})) |dep| {
+            if (try emSdkSetupStep(b, dep)) |emSdkStep| {
+                lib.step.dependOn(&emSdkStep.step);
             }
-        },
-        else => {
-            const exe = b.addExecutable(.{
-                .name = "openipc-zig",
-                .target = target,
-                .optimize = optimize,
+
+            lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include/c++/v1"));
+            lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include/compat"));
+            lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include"));
+
+            const emccExe = switch (builtin.os.tag) {
+                .windows => "emcc.bat",
+                else => "emcc",
+            };
+            const emccPath = try std.fs.path.join(b.allocator, &[_][]const u8{ dep.path("upstream/emscripten").getPath(b), emccExe });
+            defer b.allocator.free(emccPath);
+
+            const mkdir_command = b.addSystemCommand(&[_][]const u8{ "mkdir", "-p", b.getInstallPath(.prefix, "htmlout") });
+
+            const emcc_command = b.addSystemCommand(&[_][]const u8{emccPath});
+            emcc_command.step.dependOn(&lib.step);
+            emcc_command.step.dependOn(&mkdir_command.step);
+
+            emcc_command.addFileArg(lib.getEmittedBin());
+            emcc_command.addFileArg(wifidriver.getEmittedBin());
+            emcc_command.addFileArg(libusb.getEmittedBin());
+            emcc_command.addFileArg(zig_lib.getEmittedBin());
+            emcc_command.addFileArg(sodium.getEmittedBin());
+
+            emcc_command.addArgs(&[_][]const u8{
+                "-o",
+                b.getInstallPath(.prefix, "htmlout/index.html"),
+                "-pthread",
+                "-sASYNCIFY",
+                "-sPTHREAD_POOL_SIZE=4",
+                "-sALLOW_MEMORY_GROWTH=1",
+                "-sINITIAL_MEMORY=128MB",
+                "-sMAXIMUM_MEMORY=2GB",
+                "-sSTACK_SIZE=5MB",
+                "-sTOTAL_STACK=16MB",
+                "-sEXPORTED_FUNCTIONS=['_startReceiver','_stopReceiver','_main']", // Export C functions
+                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']", // Allow JS to call C functions
+
+                "--bind",
+                "-lembind",
             });
-            exe.addCSourceFile(.{
-                .file = b.path("src/wrapper.cpp"),
-                .flags = &.{
-                    "-std=gnu++20",
-                },
-            });
-            exe.linkLibrary(libusb);
-            exe.linkLibrary(wifidriver);
-            exe.linkLibC();
-            exe.linkLibCpp();
-            b.installArtifact(exe);
-        },
+
+            b.getInstallStep().dependOn(&emcc_command.step);
+        }
+
+        b.installArtifact(lib);
+    } else {
+        const zig_lib = b.addStaticLibrary(.{
+            .name = "zig-functions",
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .link_libc = true,
+            .optimize = optimize,
+        });
+        // Native build
+        const exe = b.addExecutable(.{
+            .name = "openipc-zig",
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.addIncludePath(b.path("src/wifi"));
+        // Add C++ wrapper if needed
+        exe.addCSourceFiles(.{
+            .files = &.{
+                "src/wrapper.cpp",
+                "src/wifi/WfbProcessor.cpp",
+                "src/wifi/WfbReceiver.cpp",
+            },
+            .language = .cpp,
+            .flags = &.{"-std=gnu++20"},
+        });
+        exe.addCSourceFile(.{
+            .file = b.path("src/wifi/fec.c"),
+            .language = .c,
+        });
+
+        exe.linkLibrary(zig_lib);
+        // Link dependencies
+        exe.linkLibrary(libusb);
+        exe.linkLibrary(wifidriver);
+        exe.linkLibrary(sodium);
+        exe.linkLibC();
+        exe.linkLibCpp();
+        b.installArtifact(exe);
     }
 }
