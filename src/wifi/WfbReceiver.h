@@ -49,6 +49,8 @@ public:
     /// Send a RTP payload via socket.
     void handleRtp(uint8_t *payload, uint16_t packet_size);
 
+    void sendRaw(uint8_t *payload, uint16_t packet_size);
+
 protected:
     libusb_context *ctx{};
     libusb_device_handle *devHandle{};

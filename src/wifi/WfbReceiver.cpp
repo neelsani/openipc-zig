@@ -15,8 +15,6 @@
 #include "WiFiDriver.h"
 #include "logger.h"
 
-#pragma comment(lib, "ws2_32.lib")
-
 std::vector<DeviceId> WfbReceiver::GetDeviceList()
 {
     std::vector<DeviceId> list;
@@ -86,6 +84,7 @@ std::vector<DeviceId> WfbReceiver::GetDeviceList()
 
     return list;
 }
+extern "C" void init_zig();
 
 bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWidthMode, const std::string &kPath)
 {
@@ -191,7 +190,9 @@ bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWi
                                                   {
 
                                                       rtlDevice = wifi_driver.CreateRtlDevice(devHandle);
-                                                      rtlDevice->Init(
+                                                      
+                                                        init_zig();
+                                                        rtlDevice->Init(
                                                           [](const Packet &p)
                                                           {
                                                               //std::cout << "MY GUY" << std::endl;
@@ -221,13 +222,22 @@ bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWi
                                                   ctx = nullptr;
 
                                                   usbThread.reset(); });
+    /*
+        rtlDevice->InitWrite(SelectedChannel{
+            .Channel = channel,
+            .ChannelOffset = 0,
+            .ChannelWidth = static_cast<ChannelWidth_t>(channelWidthMode),
+        });
+    */
     usbThread->detach();
 
     return true;
 }
+extern "C" void handle_data(const uint8_t *data, size_t len, const rx_pkt_attrib *attrib);
 
 void WfbReceiver::handle80211Frame(const Packet &packet)
 {
+    handle_data(packet.Data.data(), packet.Data.size(), &packet.RxAtrib); // give zig data then transfer control to c++ for backup
     RxFrame frame(packet.Data);
     if (!frame.IsValidWfbFrame())
     {
@@ -299,7 +309,10 @@ void WfbReceiver::handleRtp(uint8_t *payload, uint16_t packet_size)
 
     auto *header = (RtpHeader *)payload;
 }
-
+void WfbReceiver::sendRaw(uint8_t *payload, uint16_t packet_size)
+{
+    bool rc = rtlDevice->send_packet(payload, packet_size);
+}
 void WfbReceiver::Stop() const
 {
     playing = false;

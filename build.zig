@@ -63,15 +63,22 @@ pub fn build(b: *std.Build) !void {
     const sodium = libsodium_dep.artifact(if (target.result.isMinGW()) "libsodium-static" else "sodium");
     const libusb = libusb_dep.artifact("usb-1.0");
     const wifidriver = wifidriver_dep.artifact("WiFiDriver");
+    const zig_lib = b.addStaticLibrary(.{
+        .name = "zig-functions",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .link_libc = true,
+        .optimize = optimize,
+    });
+    zig_lib.addCSourceFile(.{
+        .file = b.path("src/wifi/fec.c"),
+        .language = .c,
+    });
+    zig_lib.addIncludePath(b.path("src/wifi"));
+    zig_lib.linkLibrary(sodium);
 
     if (target.result.os.tag == .emscripten) {
-        const zig_lib = b.addStaticLibrary(.{
-            .name = "zig-functions",
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .link_libc = true,
-            .optimize = optimize,
-        });
+
         // For Emscripten target, create a single library that combines everything
         const lib = b.addStaticLibrary(.{
             .name = "openipc-zig",
@@ -91,10 +98,7 @@ pub fn build(b: *std.Build) !void {
             .flags = &.{"-std=gnu++20"},
         });
         lib.root_module.addCMacro("__EMSCRIPTEN__", "");
-        lib.addCSourceFile(.{
-            .file = b.path("src/wifi/fec.c"),
-            .language = .c,
-        });
+
         lib.linkLibrary(zig_lib);
         // Link dependencies
         lib.linkLibrary(libusb);
@@ -109,6 +113,7 @@ pub fn build(b: *std.Build) !void {
             lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include/c++/v1"));
             lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include/compat"));
             lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include"));
+            zig_lib.addIncludePath(dep.path("upstream/emscripten/cache/sysroot/include"));
 
             const emccExe = switch (builtin.os.tag) {
                 .windows => "emcc.bat",
@@ -134,14 +139,17 @@ pub fn build(b: *std.Build) !void {
                 b.getInstallPath(.prefix, "htmlout/index.html"),
                 "-pthread",
                 "-sASYNCIFY",
-                "-sPTHREAD_POOL_SIZE=4",
+                "-sPTHREAD_POOL_SIZE=2",
                 "-sALLOW_MEMORY_GROWTH=1",
                 "-sINITIAL_MEMORY=128MB",
                 "-sMAXIMUM_MEMORY=2GB",
                 "-sSTACK_SIZE=5MB",
                 "-sTOTAL_STACK=16MB",
-                "-sEXPORTED_FUNCTIONS=['_startReceiver','_stopReceiver','_main']", // Export C functions
-                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']", // Allow JS to call C functions
+                "-sEXPORTED_FUNCTIONS=['_startReceiver','_stopReceiver','_main', '_sendRaw']", // Export C functions
+                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','lengthBytesUTF8','stringToUTF8']",
+
+                "--js-library",
+                b.path("src/js_lib.js").getPath(b),
 
                 "--bind",
                 "-lembind",
@@ -152,13 +160,7 @@ pub fn build(b: *std.Build) !void {
 
         b.installArtifact(lib);
     } else {
-        const zig_lib = b.addStaticLibrary(.{
-            .name = "zig-functions",
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .link_libc = true,
-            .optimize = optimize,
-        });
+
         // Native build
         const exe = b.addExecutable(.{
             .name = "openipc-zig",
@@ -176,11 +178,8 @@ pub fn build(b: *std.Build) !void {
             .language = .cpp,
             .flags = &.{"-std=gnu++20"},
         });
-        exe.addCSourceFile(.{
-            .file = b.path("src/wifi/fec.c"),
-            .language = .c,
-        });
 
+        zig_lib.linkLibC();
         exe.linkLibrary(zig_lib);
         // Link dependencies
         exe.linkLibrary(libusb);

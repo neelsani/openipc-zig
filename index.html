@@ -13,7 +13,7 @@
     }
     
     .container {
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 0 auto;
       background: white;
       padding: 20px;
@@ -33,6 +33,7 @@
       margin: 20px 0;
       display: flex;
       gap: 10px;
+      align-items: center;
     }
     
     button {
@@ -53,6 +54,27 @@
     
     button#stop-btn {
       background: #f44336;
+    }
+    
+    .video-container {
+      margin: 20px 0;
+      text-align: center;
+      background: #000;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    
+    #videoCanvas {
+      max-width: 100%;
+      height: auto;
+      border: 2px solid #333;
+      border-radius: 4px;
+    }
+    
+    .video-info {
+      margin-top: 10px;
+      color: #666;
+      font-size: 14px;
     }
     
     #output {
@@ -87,11 +109,25 @@
     .hidden {
       display: none;
     }
+    
+    .stats {
+      display: flex;
+      gap: 20px;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    
+    .stat-item {
+      background: #f8f9fa;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #dee2e6;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>WiFi Video Receiver</h1>
+    <h1>WiFi Video Receiver (RTP/H.264/H.265)</h1>
     
     <div id="status">
       <span class="spinner"></span>
@@ -101,13 +137,30 @@
     <div id="controls">
       <button id="start-btn" disabled>Start Receiver</button>
       <button id="stop-btn" disabled>Stop Receiver</button>
+      <span id="webcodecs-status"></span>
+    </div>
+    
+    <div class="stats">
+      <div class="stat-item">
+        <strong>Packets:</strong> <span id="packet-count">0</span>
+      </div>
+      <div class="stat-item">
+        <strong>Frames:</strong> <span id="frame-count">0</span>
+      </div>
+      <div class="stat-item">
+        <strong>Codec:</strong> <span id="current-codec">None</span>
+      </div>
     </div>
     
     <div class="video-container">
-      <canvas id="video-canvas" width="1280" height="720"></canvas>
+      <canvas id="videoCanvas" width="1920" height="1080"></canvas>
+      <div class="video-info">
+        <span id="video-resolution">No video</span> | 
+        <span id="video-fps">0 FPS</span>
+      </div>
     </div>
     
-    <textarea id="output" readonly></textarea>
+    <textarea id="output" readonly placeholder="Debug output will appear here..."></textarea>
   </div>
 
   <script>
@@ -116,7 +169,34 @@
     const stopBtn = document.getElementById('stop-btn');
     const outputElement = document.getElementById('output');
     const spinner = document.querySelector('.spinner');
-    const canvas = document.getElementById('video-canvas');
+    const canvas = document.getElementById('videoCanvas');
+    const webcodecsStatus = document.getElementById('webcodecs-status');
+    
+    // Stats tracking
+    let packetCount = 0;
+    let frameCount = 0;
+    let lastFrameTime = 0;
+    let fps = 0;
+
+    // Check WebCodecs support
+    function checkWebCodecsSupport() {
+      if (typeof VideoDecoder !== 'undefined') {
+        webcodecsStatus.textContent = '✅ WebCodecs supported';
+        webcodecsStatus.style.color = 'green';
+        return true;
+      } else {
+        webcodecsStatus.textContent = '❌ WebCodecs not supported';
+        webcodecsStatus.style.color = 'red';
+        return false;
+      }
+    }
+
+    // Update stats
+    function updateStats() {
+      document.getElementById('packet-count').textContent = packetCount;
+      document.getElementById('frame-count').textContent = frameCount;
+      document.getElementById('video-fps').textContent = fps.toFixed(1) + ' FPS';
+    }
 
     // Initialize Emscripten Module
     var Module = {
@@ -127,6 +207,24 @@
           outputElement.value += text + '\n';
           outputElement.scrollTop = outputElement.scrollHeight;
         }
+        
+        // Track packets and frames from debug output
+        if (text.includes('handleRtp: len ->')) {
+          packetCount++;
+        }
+        if (text.includes('YAY RECEIVED H264') || text.includes('YAY RECEIVED H265')) {
+          frameCount++;
+          const now = performance.now();
+          if (lastFrameTime > 0) {
+            fps = 1000 / (now - lastFrameTime);
+          }
+          lastFrameTime = now;
+          
+          // Update codec info
+          const codec = text.includes('H264') ? 'H.264' : 'H.265';
+          document.getElementById('current-codec').textContent = codec;
+        }
+        updateStats();
       },
       printErr: (text) => {
         console.error(text);
@@ -141,37 +239,42 @@
       onRuntimeInitialized: () => {
         spinner.classList.add('hidden');
         startBtn.disabled = false;
-        Module.setStatus('Ready to start receiver');
-      }
+        Module.setStatus('Ready - Click Initialize first');
+        checkWebCodecsSupport();
+      },
+      
+      // Video system will be initialized by your JavaScript library
+      videoSystem: null
     };
 
-    // Async function wrapper for Emscripten calls
-    async function callAsyncWasm(funcName) {
-      return new Promise((resolve, reject) => {
-        try {
-          Module.ccall(funcName, 
-                      'void', 
-                      [], 
-                      [], 
-                      { 
-                        async: true,
-                        onDone: () => resolve(),
-                        onError: (e) => reject(e)
-                      });
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }
+    // Override the canvas resize behavior for video
+    Module.updateVideoResolution = function(width, height) {
+      document.getElementById('video-resolution').textContent = `${width}x${height}`;
+      // The canvas size will be updated by your displayFrame function
+    };
 
-    // Event listeners
+    
+
     startBtn.addEventListener('click', async () => {
       startBtn.disabled = true;
       Module.setStatus('Starting receiver...');
       
       try {
-        await callAsyncWasm('startReceiver');
-        Module.setStatus('Receiver started');
+        // Reset stats
+        packetCount = 0;
+        frameCount = 0;
+        fps = 0;
+        updateStats();
+        
+        await new Promise((resolve, reject) => {
+          Module.ccall('startReceiver', 'void', [], [], {
+            async: true,
+            onDone: resolve,
+            onError: reject
+          });
+        });
+        
+        Module.setStatus('Receiver started - Waiting for video...');
         stopBtn.disabled = false;
       } catch (e) {
         Module.printErr('Failed to start receiver: ' + e);
@@ -185,7 +288,14 @@
       Module.setStatus('Stopping receiver...');
       
       try {
-        await callAsyncWasm('stopReceiver');
+        await new Promise((resolve, reject) => {
+          Module.ccall('stopReceiver', 'void', [], [], {
+            async: true,
+            onDone: resolve,
+            onError: reject
+          });
+        });
+        
         Module.setStatus('Receiver stopped');
         startBtn.disabled = false;
       } catch (e) {
@@ -201,9 +311,9 @@
       Module.setStatus('Error occurred');
     });
 
-    // Load the WASM module
+    // Load the WASM module - use correct path
     const script = document.createElement('script');
-    script.src = 'zig-out/htmlout/index.js';
+    script.src = 'zig-out/htmlout/index.js';  // Changed from 'zig-out/htmlout/index.js'
     script.onerror = () => {
       statusElement.textContent = 'Failed to load WebAssembly script';
       spinner.classList.add('hidden');

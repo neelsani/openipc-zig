@@ -60,7 +60,8 @@
         "set": "cpp",
         "format": "cpp",
         "mutex": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "assert.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
