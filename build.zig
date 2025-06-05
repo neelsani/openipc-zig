@@ -76,7 +76,6 @@ pub fn build(b: *std.Build) !void {
     });
     zig_lib.addIncludePath(b.path("src/wifi"));
     zig_lib.linkLibrary(sodium);
-
     if (target.result.os.tag == .emscripten) {
 
         // For Emscripten target, create a single library that combines everything
