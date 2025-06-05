@@ -265,7 +265,7 @@
         frameCount = 0;
         fps = 0;
         updateStats();
-        
+        stopBtn.disabled = false;
         await new Promise((resolve, reject) => {
           Module.ccall('startReceiver', 'void', [], [], {
             async: true,
@@ -275,7 +275,7 @@
         });
         
         Module.setStatus('Receiver started - Waiting for video...');
-        stopBtn.disabled = false;
+        
       } catch (e) {
         Module.printErr('Failed to start receiver: ' + e);
         Module.setStatus('Start failed - see console');

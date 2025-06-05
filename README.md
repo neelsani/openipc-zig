@@ -1,0 +1,2 @@
+web: air->usb-wifi->webusb->js->wrapper.cpp(main)->zig(callback-from-usbdriver)->js(rtp/payload)->html(canvas)
+else: air->usb-wifi->webusb->js->wrapper.cpp(main)->zig(callback-from-usbdriver)->udp(rtp-out)

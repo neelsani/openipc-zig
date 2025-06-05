@@ -18,8 +18,9 @@ const zig_err = @import("zig/utils.zig").zig_err;
 
 // Platform-specific video rendering
 const os = switch (builtin.os.tag) {
-    .emscripten => @import("os/emscripten.zig"),
-    else => @import("os/linux.zig"),
+    .emscripten => @import("zig/os/emscripten.zig"),
+    .windows => @import("zig/os/windows.zig"),
+    else => @import("zig/os/posix.zig"),
 };
 
 // =============================================================================
@@ -67,7 +68,7 @@ const WifiConfig = struct {
 
 var aggregator: ?*Aggregator = null;
 var mutex: ?std.Thread.Mutex = null;
-var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
+var gpa: ?std.heap.DebugAllocator(.{}) = null;
 
 // =============================================================================
 // Core Functions
@@ -80,12 +81,12 @@ export fn init_zig() void {
     const allocator = switch (builtin.target.os.tag) {
         .emscripten => std.heap.wasm_allocator,
         else => blk: {
-            gpa = std.heap.GeneralPurposeAllocator(.{}){};
-            break :blk gpa.allocator();
+            gpa = std.heap.DebugAllocator(.{}){};
+            break :blk gpa.?.allocator();
         },
     };
 
-    aggregator = Aggregator.init(allocator, "gs.key", 0, WifiConfig.video_channel_id, &handleRtp) catch |err| {
+    aggregator = Aggregator.init(allocator, "gs.key", 0, WifiConfig.video_channel_id, &os.handleRtp) catch |err| {
         zig_err("Failed to initialize aggregator: {any}\n", .{err});
         return;
     };
@@ -106,8 +107,15 @@ export fn deinit_zig() void {
         aggregator = null;
     }
 
-    if (builtin.target.os.tag != .emscripten) {
-        _ = gpa.deinit();
+    if (gpa) |*gp| {
+        switch (gp.deinit()) {
+            .leak => {
+                zig_err("LEAKS FOUND \n", .{});
+            },
+            .ok => {
+                zig_print("NO LEAKS\n", .{});
+            },
+        }
     }
 
     zig_print("WiFi video receiver deinitialized\n", .{});
@@ -127,37 +135,6 @@ export fn handle_data(data: [*]const u8, len: usize, attrib: *const RxPktAttrib)
 // =============================================================================
 
 /// Handle parsed RTP video data
-fn handleRtp(data: []const u8) void {
-    zig_print("Processing RTP packet: {} bytes\n", .{data.len});
-
-    const parsed_payload = rtp.parse(aggregator.?.allocator, data) catch |err| {
-        zig_err("RTP parsing failed: {any}\n", .{err});
-        return;
-    };
-
-    switch (parsed_payload) {
-        .h264 => |frame_data| {
-            zig_print("Received H.264 frame: NAL type {any}, key frame: {}\n", .{ frame_data.nal_type, frame_data.is_key_frame });
-            os.displayFrame(frame_data.data.ptr, frame_data.data.len, 0, frame_data.is_key_frame);
-
-            // Clean up allocated memory
-            var mutable_frame = frame_data;
-            mutable_frame.deinit(aggregator.?.allocator);
-        },
-        .h265 => |frame_data| {
-            zig_print("Received H.265 frame: NAL type {any}, key frame: {}\n", .{ frame_data.nal_type, frame_data.is_key_frame });
-            os.displayFrame(frame_data.data.ptr, frame_data.data.len, 1, frame_data.is_key_frame);
-
-            // Clean up allocated memory
-            var mutable_frame = frame_data;
-            mutable_frame.deinit(aggregator.?.allocator);
-        },
-        .unknown => {
-            zig_err("Received packet with unknown codec\n", .{});
-        },
-    }
-}
-
 /// Process raw WiFi packet data
 fn process_packet(packet_data: []const u8) !void {
     // Ensure system is initialized

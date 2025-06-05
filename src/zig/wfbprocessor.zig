@@ -34,11 +34,11 @@ pub const Aggregator = struct {
     count_p_bad: u32,
     count_p_override: u32,
 
-    dcb: ?*const fn (payload: []const u8) void,
+    dcb: ?*const fn (allocator: std.mem.Allocator, payload: []const u8) void,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, keypair: []const u8, epoch: u64, channel_id: u32, cb: ?*const fn (payload: []const u8) void) !*Self {
+    pub fn init(allocator: std.mem.Allocator, keypair: []const u8, epoch: u64, channel_id: u32, cb: ?*const fn (allocator: std.mem.Allocator, payload: []const u8) void) !*Self {
         var self = try allocator.create(Self);
 
         self.allocator = allocator;
@@ -426,7 +426,7 @@ pub const Aggregator = struct {
             self.count_p_bad += 1;
         } else if ((flags & WfbDefine.WFB_PACKET_FEC_ONLY) == 0) {
             if (self.dcb) |callback| {
-                callback(payload[0..packet_size]);
+                callback(self.allocator, payload[0..packet_size]);
             }
         }
     }

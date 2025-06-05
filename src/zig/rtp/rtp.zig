@@ -33,23 +33,24 @@ pub const RtpHeader = struct {
     ssrc: u32,
 };
 
-fn detectCodec(payload_type: u7, payload: []const u8) CodecType {
-    // Common payload types for H.264 and H.265
+// rtp.zig - Updated detectCodec function
+fn detectCodec(payload_type: u7, rtp_payload: []const u8) CodecType {
+    // For dynamic payload types, inspect the actual H.264/H.265 data
     switch (payload_type) {
         96...127 => {
-            // Dynamic payload types - need to inspect payload
-            if (payload.len == 0) return .unknown;
+            if (rtp_payload.len == 0) return .unknown;
 
-            const nal_type = payload[0] & 0x1F;
+            // Get NAL unit type from the RTP payload (after RTP header parsing)
+            const nal_type = rtp_payload[0] & 0x1F;
 
-            // H.264 NAL unit types (0-23 are valid for H.264)
-            if (nal_type <= 23) {
+            // H.264 RTP-specific types: STAP-A (24) and FU-A (28)
+            // Plus regular H.264 NAL types (1-23)
+            if (isH264NalType(nal_type)) {
                 return .h264;
             }
 
-            // H.265 NAL unit types (32-63 are H.265 specific)
-            const h265_type = (payload[0] >> 1) & 0x3F;
-            if (h265_type >= 32 and h265_type <= 63) {
+            // H.265 detection
+            if (isH265NalType(rtp_payload[0])) {
                 return .h265;
             }
 
@@ -57,6 +58,30 @@ fn detectCodec(payload_type: u7, payload: []const u8) CodecType {
         },
         else => return .unknown,
     }
+}
+
+// Helper functions matching the C++ implementation
+inline fn isH264NalType(nal_type: u8) bool {
+    // RTP aggregation and fragmentation types
+    if (nal_type == 24 or nal_type == 28) return true;
+
+    // Regular H.264 NAL unit types (1-23)
+    if (nal_type >= 1 and nal_type <= 23) return true;
+
+    return false;
+}
+
+inline fn isH265NalType(first_byte: u8) bool {
+    // H.265 NAL unit type is in bits 1-6 (shifted right by 1)
+    const h265_type = (first_byte >> 1) & 0x3F;
+
+    // H.265 RTP payload types: AP (48), FU (49), PACI (50)
+    if (h265_type == 48 or h265_type == 49 or h265_type == 50) return true;
+
+    // Regular H.265 NAL unit types (0-40)
+    if (h265_type <= 40) return true;
+
+    return false;
 }
 
 pub fn parse(allocator: std.mem.Allocator, packet: []const u8) !ParsedPayload {
@@ -77,10 +102,9 @@ pub fn parse(allocator: std.mem.Allocator, packet: []const u8) !ParsedPayload {
         .ssrc = std.mem.readInt(u32, packet[8..12], .big),
     };
 
-    // Calculate payload offset
+    // Calculate payload offset (this part looks correct)
     var payload_offset: usize = 12 + (@as(usize, header.csrc_count) * 4);
 
-    // Handle extension header if present
     if (header.extension) {
         if (packet.len < payload_offset + 4) {
             return RtpError.ShortPacket;
@@ -93,17 +117,20 @@ pub fn parse(allocator: std.mem.Allocator, packet: []const u8) !ParsedPayload {
         return RtpError.InvalidPayload;
     }
 
-    const payload = packet[payload_offset..];
-    const codec = detectCodec(header.payload_type, payload);
+    // THIS is the actual H.264/H.265 payload data (after RTP header)
+    const rtp_payload = packet[payload_offset..];
+
+    // NOW detect codec using the actual payload
+    const codec = detectCodec(header.payload_type, rtp_payload);
 
     // Use tagged union inline switch to execute codec implementation
     switch (codec) {
         .h264 => {
-            const parsed = try h264.parse(allocator, payload);
+            const parsed = try h264.parse(allocator, rtp_payload);
             return ParsedPayload{ .h264 = parsed };
         },
         .h265 => {
-            const parsed = try h265.parse(allocator, payload);
+            const parsed = try h265.parse(allocator, rtp_payload);
             return ParsedPayload{ .h265 = parsed };
         },
         .unknown => {

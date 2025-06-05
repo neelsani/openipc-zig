@@ -85,6 +85,7 @@ std::vector<DeviceId> WfbReceiver::GetDeviceList()
     return list;
 }
 extern "C" void init_zig();
+extern "C" void deinit_zig();
 
 bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWidthMode, const std::string &kPath)
 {
@@ -210,6 +211,8 @@ bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWi
                                                   {
                                                   }
 
+                                                  std::cout << "read loop ending..." << std::endl;
+                                                  deinit_zig();
                                                   auto rc1 = libusb_release_interface(devHandle, 0);
                                                   if (rc1 < 0)
                                                   {

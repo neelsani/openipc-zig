@@ -188,5 +188,14 @@ pub fn build(b: *std.Build) !void {
         exe.linkLibC();
         exe.linkLibCpp();
         b.installArtifact(exe);
+
+        switch (target.result.os.tag) {
+            .windows => {
+                exe.linkSystemLibrary("ws2_32"); // WinSock2
+                exe.linkSystemLibrary("iphlpapi"); // For if_nametoindex
+
+            },
+            else => {},
+        }
     }
 }

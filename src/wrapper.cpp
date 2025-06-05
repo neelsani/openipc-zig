@@ -5,6 +5,8 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #else
+#include <chrono>
+#include <thread>
 // Mock for non-Emscripten builds
 #define EMSCRIPTEN_KEEPALIVE
 #endif
@@ -69,6 +71,8 @@ int main()
 	startReceiver();
 	std::cin.get();
 	stopReceiver();
+	std::this_thread::sleep_for(std::chrono::seconds(3));
+
 #endif
 
 	return 0;
