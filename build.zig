@@ -148,7 +148,7 @@ pub fn build(b: *std.Build) !void {
                 "-sEXPORT_ES6=1",
                 "--js-library",
                 b.path("src/js_lib.js").getPath(b),
-
+                "-sUSE_OFFSET_CONVERTER",
                 "--bind",
                 "-lembind",
             });
