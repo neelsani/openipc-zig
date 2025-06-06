@@ -1,17 +1,10 @@
-import React from 'react';
 import { Loader2, CheckCircle, XCircle, Info } from 'lucide-react';
+import { useWebAssemblyContext } from '../contexts/WasmContext';
 
-interface StatusBarProps {
-  status: string;
-  isLoading: boolean;
-  webCodecsSupported: boolean;
-}
 
-export const StatusBar: React.FC<StatusBarProps> = ({
-  status,
-  isLoading,
-  webCodecsSupported
-}) => {
+export const StatusBar = () => {
+  const {status, isLoading, webCodecsSupported} = useWebAssemblyContext()
+
   return (
     <div className="flex items-center justify-between bg-white rounded-lg shadow-md p-4">
       <div className="flex items-center gap-3">
@@ -21,6 +14,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       </div>
       
       <div className="flex items-center gap-2">
+        
         {webCodecsSupported ? (
           <>
             <CheckCircle className="w-5 h-5 text-green-500" />

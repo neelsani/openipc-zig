@@ -1,12 +1,11 @@
-import React from 'react';
-import type { VideoStats } from '../types/device';
+
 import { BarChart3, Package, Film, Cpu } from 'lucide-react';
+import { useWebAssemblyContext } from '../contexts/WasmContext';
 
-interface StatsPanelProps {
-  stats: VideoStats;
-}
 
-export const StatsPanel: React.FC<StatsPanelProps> = ({ stats }) => {
+
+export const StatsPanel = () => {
+  const { stats } = useWebAssemblyContext()
   const statItems = [
     {
       label: 'Packets',

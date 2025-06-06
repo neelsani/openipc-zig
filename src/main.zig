@@ -61,7 +61,6 @@ const WifiConfig = struct {
     const video_channel_id_be: u32 = std.mem.nativeToBig(u32, video_channel_id);
     const video_channel_id_bytes: [4]u8 = std.mem.toBytes(video_channel_id_be);
 };
-
 // =============================================================================
 // Global State
 // =============================================================================
@@ -123,9 +122,7 @@ export fn deinit_zig() void {
 
 /// Process incoming packet data
 export fn handle_data(data: [*]const u8, len: usize, attrib: *const RxPktAttrib) void {
-    _ = attrib; // Packet attributes available if needed for future features
-
-    process_packet(data[0..len]) catch |err| {
+    process_packet(data[0..len], attrib) catch |err| {
         zig_err("Packet processing error: {any}\n", .{err});
     };
 }
@@ -136,13 +133,13 @@ export fn handle_data(data: [*]const u8, len: usize, attrib: *const RxPktAttrib)
 
 /// Handle parsed RTP video data
 /// Process raw WiFi packet data
-fn process_packet(packet_data: []const u8) !void {
+fn process_packet(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
     // Ensure system is initialized
     if (aggregator == null or mutex == null) {
         zig_err("System not initialized - call init_zig() first\n", .{});
         return error.SystemNotInitialized;
     }
-    zig_print("packet {d}\n", .{packet_data[0]});
+    zig_print("packet {any}\n", .{attrib});
     // Validate WiFi frame format
     const frame = RxFrame.init(packet_data);
     if (!frame.isValidWfbFrame()) {

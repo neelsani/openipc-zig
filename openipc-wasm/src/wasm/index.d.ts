@@ -31,6 +31,9 @@ declare namespace RuntimeExports {
     function UTF8ToString(ptr: number, maxBytesToRead?: number | undefined): string;
     function lengthBytesUTF8(str: any): number;
     function stringToUTF8(str: any, outPtr: any, maxBytesToWrite: any): any;
+    /** @param {string=} sig */
+    function addFunction(func: any, sig?: string | undefined): any;
+    function removeFunction(index: any): void;
 }
 interface WasmModule {
   _main(_0: number, _1: number): number;
@@ -62,14 +65,20 @@ export interface DeviceIdVector extends ClassHandle {
   set(_0: number, _1: DeviceId): boolean;
 }
 
+export interface ChannelWidthValue<T extends number> {
+  value: T;
+}
+export type ChannelWidth = ChannelWidthValue<0>|ChannelWidthValue<1>|ChannelWidthValue<2>|ChannelWidthValue<3>|ChannelWidthValue<4>|ChannelWidthValue<5>|ChannelWidthValue<6>|ChannelWidthValue<7>;
+
 interface EmbindModule {
   DeviceIdVector: {
     new(): DeviceIdVector;
   };
   getDeviceList(): DeviceIdVector;
-  startReceiver(_0: number): void;
   stopReceiver(): void;
   sendRaw(): void;
+  startReceiver(_0: number, _1: ChannelWidth, _2: number): void;
+  ChannelWidth: {CHANNEL_WIDTH_20: ChannelWidthValue<0>, CHANNEL_WIDTH_40: ChannelWidthValue<1>, CHANNEL_WIDTH_80: ChannelWidthValue<2>, CHANNEL_WIDTH_160: ChannelWidthValue<3>, CHANNEL_WIDTH_80_80: ChannelWidthValue<4>, CHANNEL_WIDTH_5: ChannelWidthValue<5>, CHANNEL_WIDTH_10: ChannelWidthValue<6>, CHANNEL_WIDTH_MAX: ChannelWidthValue<7>};
 }
 
 export type MainModule = WasmModule & typeof RuntimeExports & EmbindModule;

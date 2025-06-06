@@ -78,5 +78,11 @@ mergeInto(LibraryManager.library, {
             console.error('Failed to decode frame:', error);
         }
     },
+    updateStatsCallback: function(rssi, snr, packet_count, frame_count, fps) {
+        // This will be called from your Zig code
+        if (Module.onStatsUpdate) {
+            Module.onStatsUpdate(rssi, snr, packet_count, frame_count, fps);
+        }
+    }
   
 });

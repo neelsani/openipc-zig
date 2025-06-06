@@ -7,11 +7,15 @@ export interface Device {
   port_num: number;
 }
 
-export interface VideoStats {
+export interface LinkStats {
+  rssi: number,
+  snr: number,
   packetCount: number;
   frameCount: number;
   fps: number;
   codec?: string;
   resolution?: string;
 }
+
+
 

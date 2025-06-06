@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import MainModuleFactory, { type MainModule } from '../wasm';
+import type { LinkStats } from '../types/device';
+
+
 
 interface WebAssemblyContextType {
   module: MainModule | null;
@@ -9,6 +12,8 @@ interface WebAssemblyContextType {
   webCodecsSupported: boolean;
   setCanvas: (canvas: HTMLCanvasElement | null) => void;
   outputLog: string;
+  stats: LinkStats;
+  updateStats: (newStats: Partial<LinkStats>) => void;
 }
 
 const WebAssemblyContext = createContext<WebAssemblyContextType | undefined>(undefined);
@@ -27,6 +32,15 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
   const [webCodecsSupported, setWebCodecsSupported] = useState(false);
   const [outputLog, setOutputLog] = useState('');
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [stats, setStats] = useState<LinkStats>({
+    rssi: 0,
+    snr: 0,
+    packetCount: 0,
+    frameCount: 0,
+    fps: 0,
+    codec: undefined,
+    resolution: undefined
+  });
   
   const outputLogEntriesRef = useRef<string[]>([]);
   const moduleRef = useRef<MainModule | null>(null);
@@ -41,6 +55,13 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
     
     // Update the log string
     setOutputLog(outputLogEntriesRef.current.join('\n'));
+  };
+
+  const updateStats = (newStats: Partial<LinkStats>) => {
+    setStats(prevStats => ({
+      ...prevStats,
+      ...newStats
+    }));
   };
 
   // Initialize WebCodecs support check
@@ -105,7 +126,9 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
     setStatus,
     webCodecsSupported,
     setCanvas,
-    outputLog
+    outputLog,
+    stats,
+    updateStats
   };
 
   return (

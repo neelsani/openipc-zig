@@ -1,15 +1,12 @@
 import { useEffect, useRef } from 'react';
-import type { VideoStats } from '../types/device';
 import { Monitor, Activity } from 'lucide-react';
 import { useWebAssemblyContext } from '../contexts/WasmContext';
 
-interface VideoCanvasProps {
-  stats: VideoStats;
-}
 
-export const VideoCanvas = ({ stats }: VideoCanvasProps) => {
+
+export const VideoCanvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { setCanvas } = useWebAssemblyContext();
+  const { stats, setCanvas } = useWebAssemblyContext();
   
   useEffect(() => {
     if (canvasRef.current) {

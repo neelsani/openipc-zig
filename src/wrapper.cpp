@@ -5,7 +5,6 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/bind.h>
-
 #else
 #include <chrono>
 #include <thread>
@@ -18,8 +17,7 @@ WfbReceiver &receiver = WfbReceiver::Instance();
 extern "C"
 {
 
-	
-	void startReceiver(uint8_t i)
+	void startReceiver(uint8_t i, ChannelWidth_t channelWidth, uint8_t channel)
 	{
 		std::vector<DeviceId> devices = WfbReceiver::GetDeviceList();
 		if (devices.empty())
@@ -29,8 +27,7 @@ extern "C"
 		}
 		std::cout << "Hello" << std::endl;
 		const DeviceId &selectedDevice = devices[i];
-		uint8_t channel = 161;
-		int channelWidth = 1;
+
 		std::string keyPath = "gs.key";
 
 		if (!receiver.Start(selectedDevice, channel, channelWidth, keyPath))
@@ -38,9 +35,8 @@ extern "C"
 			std::cout << "Failed to start receiver!" << std::endl;
 		}
 		std::cout << "Exiting startReciever" << std::endl;
-
 	}
-	
+
 	void stopReceiver()
 	{
 		receiver.Stop();
@@ -69,7 +65,8 @@ extern "C"
 }
 
 #ifdef __EMSCRIPTEN__
-	EMSCRIPTEN_BINDINGS(device_module)
+
+EMSCRIPTEN_BINDINGS(device_module)
 {
 	emscripten::value_object<DeviceId>("DeviceId")
 		.field("vendor_id", &DeviceId::vendor_id)
@@ -79,13 +76,21 @@ extern "C"
 		.field("port_num", &DeviceId::port_num);
 
 	emscripten::register_vector<DeviceId>("DeviceIdVector");
-	
+
 	emscripten::function("getDeviceList", &WfbReceiver::GetDeviceList);
 	emscripten::function("startReceiver", &startReceiver);
 	emscripten::function("stopReceiver", &stopReceiver);
 	emscripten::function("sendRaw", &sendRaw);
 
-
+	emscripten::enum_<ChannelWidth_t>("ChannelWidth")
+		.value("CHANNEL_WIDTH_20", CHANNEL_WIDTH_20)
+		.value("CHANNEL_WIDTH_40", CHANNEL_WIDTH_40)
+		.value("CHANNEL_WIDTH_80", CHANNEL_WIDTH_80)
+		.value("CHANNEL_WIDTH_160", CHANNEL_WIDTH_160)
+		.value("CHANNEL_WIDTH_80_80", CHANNEL_WIDTH_80_80)
+		.value("CHANNEL_WIDTH_5", CHANNEL_WIDTH_5)
+		.value("CHANNEL_WIDTH_10", CHANNEL_WIDTH_10)
+		.value("CHANNEL_WIDTH_MAX", CHANNEL_WIDTH_MAX);
 }
 #endif
 
