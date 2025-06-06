@@ -19,7 +19,9 @@ extern "C"
 
 	void startReceiver(uint8_t i, ChannelWidth_t channelWidth, uint8_t channel)
 	{
-		std::vector<DeviceId> devices = WfbReceiver::GetDeviceList();
+
+		std::vector<DeviceId>
+			devices = WfbReceiver::GetDeviceList();
 		if (devices.empty())
 		{
 			std::cerr << "No devices found!" << std::endl;
@@ -94,16 +96,23 @@ EMSCRIPTEN_BINDINGS(device_module)
 }
 #endif
 
-int main()
+int main(int argc, char *argv[])
 {
-// In WASM, main() doesn't need to block. Control is via JS.
 #ifndef __EMSCRIPTEN__
-	// Original blocking code for native builds
-	startReceiver(0);
+	if (argc > 3 || (argc == 2 && std::string(argv[1]) == "-h"))
+	{
+		std::cout << "Usage: " << argv[0] << " [channel_width] [channel]" << std::endl;
+		std::cout << "Defaults: channel_width=0, channel=161" << std::endl;
+		return argc > 3 ? 1 : 0;
+	}
+
+	int arg1 = (argc >= 2) ? std::atoi(argv[1]) : 0;
+	int arg2 = (argc >= 3) ? std::atoi(argv[2]) : 161;
+
+	startReceiver(0, static_cast<ChannelWidth_t>(arg1), arg2);
 	std::cin.get();
 	stopReceiver();
-	std::this_thread::sleep_for(std::chrono::seconds(3));
-
+	std::this_thread::sleep_for(std::chrono::seconds(1));
 #endif
 
 	return 0;

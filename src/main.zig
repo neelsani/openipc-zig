@@ -17,11 +17,7 @@ const zig_print = @import("zig/utils.zig").zig_print;
 const zig_err = @import("zig/utils.zig").zig_err;
 
 // Platform-specific video rendering
-const os = switch (builtin.os.tag) {
-    .emscripten => @import("zig/os/emscripten.zig"),
-    .windows => @import("zig/os/windows.zig"),
-    else => @import("zig/os/posix.zig"),
-};
+const os = @import("zig/os/os.zig");
 
 // =============================================================================
 // Types and Constants
