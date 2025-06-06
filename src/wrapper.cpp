@@ -5,19 +5,7 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/bind.h>
-EMSCRIPTEN_BINDINGS(device_module)
-{
-	emscripten::value_object<DeviceId>("DeviceId")
-		.field("vendor_id", &DeviceId::vendor_id)
-		.field("product_id", &DeviceId::product_id)
-		.field("display_name", &DeviceId::display_name)
-		.field("bus_num", &DeviceId::bus_num)
-		.field("port_num", &DeviceId::port_num);
 
-	emscripten::register_vector<DeviceId>("DeviceIdVector");
-
-	emscripten::function("getDeviceList", &WfbReceiver::GetDeviceList);
-}
 #else
 #include <chrono>
 #include <thread>
@@ -30,7 +18,7 @@ WfbReceiver &receiver = WfbReceiver::Instance();
 extern "C"
 {
 
-	EMSCRIPTEN_KEEPALIVE
+	
 	void startReceiver(uint8_t i)
 	{
 		std::vector<DeviceId> devices = WfbReceiver::GetDeviceList();
@@ -49,11 +37,14 @@ extern "C"
 		{
 			std::cout << "Failed to start receiver!" << std::endl;
 		}
-	}
+		std::cout << "Exiting startReciever" << std::endl;
 
+	}
+	
 	void stopReceiver()
 	{
 		receiver.Stop();
+		std::this_thread::sleep_for(std::chrono::seconds(1));
 	}
 
 	void sendRaw()
@@ -76,6 +67,27 @@ extern "C"
 		receiver.sendRaw(beacon_frame, sizeof(beacon_frame));
 	}
 }
+
+#ifdef __EMSCRIPTEN__
+	EMSCRIPTEN_BINDINGS(device_module)
+{
+	emscripten::value_object<DeviceId>("DeviceId")
+		.field("vendor_id", &DeviceId::vendor_id)
+		.field("product_id", &DeviceId::product_id)
+		.field("display_name", &DeviceId::display_name)
+		.field("bus_num", &DeviceId::bus_num)
+		.field("port_num", &DeviceId::port_num);
+
+	emscripten::register_vector<DeviceId>("DeviceIdVector");
+	
+	emscripten::function("getDeviceList", &WfbReceiver::GetDeviceList);
+	emscripten::function("startReceiver", &startReceiver);
+	emscripten::function("stopReceiver", &stopReceiver);
+	emscripten::function("sendRaw", &sendRaw);
+
+
+}
+#endif
 
 int main()
 {

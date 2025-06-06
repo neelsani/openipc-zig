@@ -142,7 +142,7 @@ fn process_packet(packet_data: []const u8) !void {
         zig_err("System not initialized - call init_zig() first\n", .{});
         return error.SystemNotInitialized;
     }
-
+    zig_print("packet {d}\n", .{packet_data[0]});
     // Validate WiFi frame format
     const frame = RxFrame.init(packet_data);
     if (!frame.isValidWfbFrame()) {

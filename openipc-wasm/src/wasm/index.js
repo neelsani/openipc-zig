@@ -7703,12 +7703,6 @@ var wasmExports = await createWasm();
 // Imports from the Wasm binary.
 var ___wasm_call_ctors = createExportWrapper("__wasm_call_ctors", 0);
 
-var _startReceiver = Module["_startReceiver"] = createExportWrapper("startReceiver", 1);
-
-var _stopReceiver = Module["_stopReceiver"] = createExportWrapper("stopReceiver", 0);
-
-var _sendRaw = Module["_sendRaw"] = createExportWrapper("sendRaw", 0);
-
 var _main = Module["_main"] = createExportWrapper("main", 2);
 
 var ___getTypeName = createExportWrapper("__getTypeName", 1);

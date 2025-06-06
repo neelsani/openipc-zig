@@ -1,13 +1,13 @@
 import { useState, useCallback } from 'react';
-import type { Device, EmscriptenModule } from '../types/device';
+import type { Device } from '../types/device';
+import { useWebAssemblyContext } from '../contexts/WasmContext';
 
 export const useDeviceManager = (
-  module: EmscriptenModule | null,
-  setStatus: (status: string) => void
+  
 ) => {
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-
+  const {module, setStatus} = useWebAssemblyContext()
   const loadDevices = useCallback(async () => {
     if (!module) return;
 
@@ -17,14 +17,17 @@ export const useDeviceManager = (
 
       for (let i = 0; i < deviceList.size(); i++) {
         const device = deviceList.get(i);
-        deviceArray.push({
-          index: i,
-          vendor_id: device.vendor_id,
-          product_id: device.product_id,
-          display_name: device.display_name,
-          bus_num: device.bus_num,
-          port_num: device.port_num
+        if (device != undefined) {
+          deviceArray.push({
+            index: i,
+            vendor_id: device.vendor_id,
+            product_id: device.product_id,
+            display_name: device.display_name.toString(),
+            bus_num: device.bus_num,
+            port_num: device.port_num
         });
+        }
+        
       }
 
       deviceList.delete();

@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
-import { useWebAssembly } from './hooks/useWebAssembly.ts';
 import { useDeviceManager } from './hooks/useDeviceManager.ts';
 import { useVideoStats } from './hooks/useVideoStats.ts';
 import { DeviceSelector } from './components/DeviceSelector';
@@ -9,10 +8,9 @@ import { ControlPanel } from './components/ControlPanel.tsx';
 import { StatsPanel } from './components/StatsPanel.tsx';
 import { VideoCanvas } from './components/VideoCanvas.tsx';
 import { OutputConsole } from './components/OutputConsole.tsx';
+import { useWebAssemblyContext } from './contexts/WasmContext.tsx';
 
 function App() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [outputLog, setOutputLog] = useState<string>('');
   const [isReceiving, setIsReceiving] = useState(false);
   DeviceSelector
   const { 
@@ -20,16 +18,19 @@ function App() {
     isLoading, 
     status, 
     setStatus,
-    webCodecsSupported 
-  } = useWebAssembly(canvasRef, setOutputLog);
+    webCodecsSupported,
+    outputLog,
+  } = useWebAssemblyContext();
   
+
+
   const {
     devices,
     selectedDevice,
     selectDevice,
     requestDevice,
     loadDevices
-  } = useDeviceManager(module, setStatus);
+  } = useDeviceManager();
   
   const { stats, updateStats } = useVideoStats();
 
@@ -48,14 +49,7 @@ function App() {
     try {
       updateStats({ packetCount: 0, frameCount: 0, fps: 0 });
       
-      await new Promise<void>((resolve, reject) => {
-        module.ccall('startReceiver', 'void', ['number'], [selectedDevice.index], {
-          async: true,
-          onDone: resolve,
-          onError: reject
-        });
-      });
-      
+      module.startReceiver(selectedDevice.index)
       setStatus('Receiver started - Waiting for video...');
     } catch (error) {
       console.error('Failed to start receiver:', error);
@@ -70,9 +64,7 @@ function App() {
     setStatus('Stopping receiver...');
     
     try {
-      await module.ccall('stopReceiver', 'void', [], [], {
-          async: true,
-        });
+      module.stopReceiver();
       
       
       setStatus('Receiver stopped');
@@ -122,7 +114,6 @@ function App() {
           {/* Right Column - Video and Console */}
           <div className="xl:col-span-2 space-y-6">
             <VideoCanvas 
-              ref={canvasRef}
               stats={stats}
             />
             
