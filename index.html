@@ -56,6 +56,73 @@
       background: #f44336;
     }
     
+    button#request-device-btn {
+      background: #ff9800;
+    }
+    
+    button#request-device-btn:hover:not(:disabled) {
+      background: #e68900;
+    }
+    
+    .device-selector {
+      margin: 20px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+    }
+    
+    .device-selector h3 {
+      margin-top: 0;
+      color: #333;
+    }
+    
+    .device-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    
+    .device-table th,
+    .device-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    .device-table th {
+      background-color: #f1f3f4;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    .device-table tr:hover {
+      background-color: #f5f5f5;
+    }
+    
+    .device-table tr.selected {
+      background-color: #e3f2fd;
+    }
+    
+    .device-table tr.selected td {
+      font-weight: bold;
+    }
+    
+    .device-table td:first-child {
+      text-align: center;
+    }
+    
+    .device-table input[type="radio"] {
+      cursor: pointer;
+    }
+    
+    .no-devices {
+      text-align: center;
+      color: #666;
+      font-style: italic;
+      padding: 20px;
+    }
+    
     .video-container {
       margin: 20px 0;
       text-align: center;
@@ -134,9 +201,17 @@
       <span id="status-text">Loading WebAssembly...</span>
     </div>
     
+    <div id="device-selector" class="device-selector hidden">
+      <h3>Available Devices</h3>
+      <div id="device-list">
+        <div class="no-devices">No devices found</div>
+      </div>
+    </div>
+    
     <div id="controls">
       <button id="start-btn" disabled>Start Receiver</button>
       <button id="stop-btn" disabled>Stop Receiver</button>
+      <button id="request-device-btn">Request Device</button>
       <span id="webcodecs-status"></span>
     </div>
     
@@ -167,16 +242,21 @@
     const statusElement = document.getElementById('status-text');
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
+    const requestDeviceBtn = document.getElementById('request-device-btn');
     const outputElement = document.getElementById('output');
     const spinner = document.querySelector('.spinner');
     const canvas = document.getElementById('videoCanvas');
     const webcodecsStatus = document.getElementById('webcodecs-status');
+    const deviceSelector = document.getElementById('device-selector');
+    const deviceList = document.getElementById('device-list');
     
     // Stats tracking
     let packetCount = 0;
     let frameCount = 0;
     let lastFrameTime = 0;
     let fps = 0;
+    let availableDevices = [];
+    let selectedDeviceIndex = -1;
 
     // Check WebCodecs support
     function checkWebCodecsSupport() {
@@ -196,6 +276,172 @@
       document.getElementById('packet-count').textContent = packetCount;
       document.getElementById('frame-count').textContent = frameCount;
       document.getElementById('video-fps').textContent = fps.toFixed(1) + ' FPS';
+    }
+
+    // Get device list using Module.getDeviceList()
+    async function getDeviceList() {
+      try {
+        // Call the function
+        const devices = await Module.getDeviceList();
+        const deviceArray = [];
+
+        // Access the vector
+        for (let i = 0; i < devices.size(); i++) {
+            const device = devices.get(i);
+            console.log(`Device: ${device.display_name}`);
+            console.log(`Vendor ID: 0x${device.vendor_id.toString(16)}`);
+            console.log(`Product ID: 0x${device.product_id.toString(16)}`);
+            console.log(`Bus: ${device.bus_num}, Port: ${device.port_num}`);
+            
+            deviceArray.push({
+              index: i,
+              vendor_id: device.vendor_id,
+              product_id: device.product_id,
+              display_name: device.display_name,
+              bus_num: device.bus_num,
+              port_num: device.port_num
+            });
+        }
+
+        // Don't forget to delete the vector when done
+        devices.delete();
+        
+        return deviceArray;
+      } catch (e) {
+        console.error('Error getting device list:', e);
+        return [];
+      }
+    }
+
+    // Create device selector table
+    function createDeviceTable(devices) {
+      if (devices.length === 0) {
+        deviceList.innerHTML = '<div class="no-devices">No devices found</div>';
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'device-table';
+      
+      // Create header
+      const header = table.createTHead();
+      const headerRow = header.insertRow();
+      ['Select', 'Device Name', 'Vendor ID', 'Product ID', 'Bus', 'Port'].forEach(text => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        headerRow.appendChild(th);
+      });
+
+      // Create body
+      const tbody = table.createTBody();
+      devices.forEach((device, index) => {
+        const row = tbody.insertRow();
+        row.dataset.deviceIndex = index;
+        
+        // Radio button cell
+        const radioCell = row.insertCell();
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'device-selection';
+        radio.value = index;
+        radio.addEventListener('change', () => selectDevice(index));
+        radioCell.appendChild(radio);
+        
+        // Device info cells
+        const cells = [
+          device.display_name,
+          `0x${device.vendor_id.toString(16).toUpperCase().padStart(4, '0')}`,
+          `0x${device.product_id.toString(16).toUpperCase().padStart(4, '0')}`,
+          device.bus_num,
+          device.port_num
+        ];
+        
+        cells.forEach(text => {
+          const cell = row.insertCell();
+          cell.textContent = text;
+        });
+
+        // Make row clickable
+        row.addEventListener('click', (e) => {
+          if (e.target.type !== 'radio') {
+            radio.checked = true;
+            selectDevice(index);
+          }
+        });
+      });
+
+      deviceList.innerHTML = '';
+      deviceList.appendChild(table);
+    }
+
+    // Select device
+    function selectDevice(index) {
+      selectedDeviceIndex = index;
+      
+      // Update table selection
+      const rows = deviceList.querySelectorAll('tr');
+      rows.forEach(row => row.classList.remove('selected'));
+      
+      const selectedRow = deviceList.querySelector(`tr[data-device-index="${index}"]`);
+      if (selectedRow) {
+        selectedRow.classList.add('selected');
+      }
+      
+      // Enable start button
+      startBtn.disabled = false;
+      Module.setStatus(`Device selected: ${availableDevices[index].display_name}`);
+    }
+
+    // Handle device request
+    async function requestDevice() {
+      try {
+        if (!navigator.usb) {
+          alert('WebUSB is not supported in this browser');
+          return;
+        }
+        
+        requestDeviceBtn.textContent = 'Requesting Device...';
+        
+        const device = await navigator.usb.requestDevice({
+          filters: []
+        });
+        
+        if (device) {
+          // Device selected, refresh the page
+          window.location.reload();
+        }
+      } catch (e) {
+        console.error('Device request failed:', e);
+        
+        alert('Device request failed: ' + e.message);
+      }
+    }
+
+    // Initialize controls based on device availability
+    async function initializeControls() {
+      try {
+        availableDevices = await getDeviceList();
+        
+        if (availableDevices.length > 0) {
+          // Devices available, show device selector
+          deviceSelector.classList.remove('hidden');
+          createDeviceTable(availableDevices);
+          startBtn.classList.remove('hidden');
+          stopBtn.classList.remove('hidden');
+          Module.setStatus('Select a device to continue');
+        } else {
+          // No devices, show request device button
+          deviceSelector.classList.add('hidden');
+          startBtn.classList.add('hidden');
+          stopBtn.classList.add('hidden');
+          startBtn.disabled = true;
+          stopBtn.disabled = true;
+          Module.setStatus('No devices detected - Click Request Device');
+        }
+      } catch (e) {
+        console.error('Error initializing controls:', e);
+        Module.setStatus('Error checking devices');
+      }
     }
 
     // Initialize Emscripten Module
@@ -236,11 +482,13 @@
       setStatus: (text) => {
         statusElement.textContent = text;
       },
-      onRuntimeInitialized: () => {
+      onRuntimeInitialized: async () => {
         spinner.classList.add('hidden');
-        startBtn.disabled = false;
-        Module.setStatus('Ready - Click Initialize first');
+        Module.setStatus('Ready - Loading device list...');
         checkWebCodecsSupport();
+        
+        // Initialize controls based on device availability
+        await initializeControls();
       },
       
       // Video system will be initialized by your JavaScript library
@@ -253,9 +501,12 @@
       // The canvas size will be updated by your displayFrame function
     };
 
-    
-
     startBtn.addEventListener('click', async () => {
+      if (selectedDeviceIndex === -1) {
+        alert('Please select a device first');
+        return;
+      }
+      
       startBtn.disabled = true;
       Module.setStatus('Starting receiver...');
       
@@ -266,8 +517,10 @@
         fps = 0;
         updateStats();
         stopBtn.disabled = false;
+        
+        // Pass selected device index to C++
         await new Promise((resolve, reject) => {
-          Module.ccall('startReceiver', 'void', [], [], {
+          Module.ccall('startReceiver', 'void', ['number'], [selectedDeviceIndex], {
             async: true,
             onDone: resolve,
             onError: reject
@@ -305,6 +558,9 @@
       }
     });
 
+    // Add request device button event listener
+    requestDeviceBtn.addEventListener('click', requestDevice);
+
     // Error handling
     window.addEventListener('error', (event) => {
       Module.printErr('Unhandled error: ' + event.message);
@@ -313,7 +569,7 @@
 
     // Load the WASM module - use correct path
     const script = document.createElement('script');
-    script.src = 'zig-out/htmlout/index.js';  // Changed from 'zig-out/htmlout/index.js'
+    script.src = 'zig-out/htmlout/index.js';
     script.onerror = () => {
       statusElement.textContent = 'Failed to load WebAssembly script';
       spinner.classList.add('hidden');

@@ -121,11 +121,8 @@ pub fn build(b: *std.Build) !void {
             const emccPath = try std.fs.path.join(b.allocator, &[_][]const u8{ dep.path("upstream/emscripten").getPath(b), emccExe });
             defer b.allocator.free(emccPath);
 
-            const mkdir_command = b.addSystemCommand(&[_][]const u8{ "mkdir", "-p", b.getInstallPath(.prefix, "htmlout") });
-
             const emcc_command = b.addSystemCommand(&[_][]const u8{emccPath});
             emcc_command.step.dependOn(&lib.step);
-            emcc_command.step.dependOn(&mkdir_command.step);
 
             emcc_command.addFileArg(lib.getEmittedBin());
             emcc_command.addFileArg(wifidriver.getEmittedBin());
@@ -135,10 +132,10 @@ pub fn build(b: *std.Build) !void {
 
             emcc_command.addArgs(&[_][]const u8{
                 "-o",
-                b.getInstallPath(.prefix, "htmlout/index.html"),
+                b.path("openipc-wasm/src/wasm/index.js").getPath(b),
                 "-pthread",
                 "-sASYNCIFY",
-                "-sPTHREAD_POOL_SIZE=2",
+                "-sPTHREAD_POOL_SIZE=3",
                 "-sALLOW_MEMORY_GROWTH=1",
                 "-sINITIAL_MEMORY=128MB",
                 "-sMAXIMUM_MEMORY=2GB",
@@ -146,7 +143,9 @@ pub fn build(b: *std.Build) !void {
                 "-sTOTAL_STACK=16MB",
                 "-sEXPORTED_FUNCTIONS=['_startReceiver','_stopReceiver','_main', '_sendRaw']", // Export C functions
                 "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','lengthBytesUTF8','stringToUTF8']",
-
+                "-sENVIRONMENT=web,worker",
+                "-sMODULARIZE=1",
+                "-sEXPORT_ES6=1",
                 "--js-library",
                 b.path("src/js_lib.js").getPath(b),
 
