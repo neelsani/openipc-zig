@@ -15,13 +15,3 @@ export interface VideoStats {
   resolution?: string;
 }
 
-export interface EmscriptenModule {
-  canvas: HTMLCanvasElement;
-  print: (text: string) => void;
-  printErr: (text: string) => void;
-  setStatus: (text: string) => void;
-  onRuntimeInitialized: () => void;
-  ccall: (name: string, returnType: string, argTypes: string[], args: any[], options?: any) => any;
-  getDeviceList: () => any;
-  updateVideoResolution?: (width: number, height: number) => void;
-}

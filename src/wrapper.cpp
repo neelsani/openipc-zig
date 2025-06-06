@@ -94,7 +94,7 @@ int main()
 // In WASM, main() doesn't need to block. Control is via JS.
 #ifndef __EMSCRIPTEN__
 	// Original blocking code for native builds
-	startReceiver();
+	startReceiver(0);
 	std::cin.get();
 	stopReceiver();
 	std::this_thread::sleep_for(std::chrono::seconds(3));
