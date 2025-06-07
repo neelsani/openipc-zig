@@ -13,3 +13,7 @@ pub fn deinit(allocator: std.mem.Allocator) void {
     _ = allocator;
     zig_print("windows specific deinitialized!\n", .{});
 }
+pub fn onIEEFrame(rssi: i32, snr: i32) void {
+    _ = rssi;
+    _ = snr;
+}

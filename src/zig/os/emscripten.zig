@@ -11,6 +11,8 @@ var depacketizer: ?rtp.RtpDepacketizer = null;
 
 extern fn displayFrame(data_ptr: [*]const u8, data_len: usize, codec_type: u32, is_key_frame: bool) void;
 
+pub extern fn onIEEFrame(rssi: u8, snr: i8) void;
+
 pub fn init(allocator: std.mem.Allocator) void {
     depacketizer = rtp.RtpDepacketizer.init(allocator);
     zig_print("depacketizer initialized!\n", .{});

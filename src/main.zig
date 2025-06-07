@@ -139,7 +139,8 @@ fn process_packet(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
         zig_err("System not initialized - call init_zig() first\n", .{});
         return error.SystemNotInitialized;
     }
-    zig_print("packet {any}\n", .{attrib});
+    os.onIEEFrame(@divTrunc(attrib.rssi[0] + attrib.rssi[1], 2), @divTrunc(attrib.snr[0] + attrib.snr[1], 2)); // this is supposed to show after valid packet but here for debug
+    //zig_print("packet {any}\n", .{attrib});
     // Validate WiFi frame format
     const frame = RxFrame.init(packet_data);
     if (!frame.isValidWfbFrame()) {

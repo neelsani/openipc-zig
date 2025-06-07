@@ -11,8 +11,8 @@ import { useWebAssemblyContext } from './contexts/WasmContext.tsx';
 
 function App() {
   const [isReceiving, setIsReceiving] = useState(false);
-  const [selectedChannel, setSelectedChannel] = useState<number | null>(null);
-  const [selectedChannelWidth, setSelectedChannelWidth] = useState<string>('');
+  const [selectedChannel, setSelectedChannel] = useState<number | null>(161);
+  const [selectedChannelWidth, setSelectedChannelWidth] = useState<string>('CHANNEL_WIDTH_20');
   
   const { 
     module, 

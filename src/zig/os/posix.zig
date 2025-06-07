@@ -15,6 +15,11 @@ pub fn deinit(allocator: std.mem.Allocator) void {
     zig_print("posix specific deinitialized!\n", .{});
 }
 
+pub fn onIEEFrame(rssi: i32, snr: i32) void {
+    _ = rssi;
+    _ = snr;
+}
+
 pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
     _ = allocator; // Not needed for this implementation
 

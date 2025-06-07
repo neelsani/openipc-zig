@@ -9,6 +9,7 @@ export const VideoCanvas = () => {
   const { stats, setCanvas } = useWebAssemblyContext();
   
   useEffect(() => {
+    console.log("setting canvas")
     if (canvasRef.current) {
       setCanvas(canvasRef.current);
     }

@@ -31,9 +31,22 @@ declare namespace RuntimeExports {
     function UTF8ToString(ptr: number, maxBytesToRead?: number | undefined): string;
     function lengthBytesUTF8(str: any): number;
     function stringToUTF8(str: any, outPtr: any, maxBytesToWrite: any): any;
-    /** @param {string=} sig */
-    function addFunction(func: any, sig?: string | undefined): any;
-    function removeFunction(index: any): void;
+    namespace PThread {
+        let unusedWorkers: any[];
+        let runningWorkers: any[];
+        let tlsInitFunctions: any[];
+        let pthreads: {};
+        let nextWorkerID: number;
+        function init(): void;
+        function initMainThread(): void;
+        function terminateAllThreads(): void;
+        function returnWorkerToPool(worker: any): void;
+        function threadInitTLS(): void;
+        function loadWasmModuleToWorker(worker: any): any;
+        function loadWasmModuleToAllWorkers(onMaybeReady: any): any;
+        function allocateUnusedWorker(): void;
+        function getNewWorker(): any;
+    }
 }
 interface WasmModule {
   _main(_0: number, _1: number): number;
