@@ -7442,6 +7442,13 @@ function _fd_write(fd, iov, iovcnt, pnum) {
   }
 }
 
+var stringToUTF8OnStack = str => {
+  var size = lengthBytesUTF8(str) + 1;
+  var ret = stackAlloc(size);
+  stringToUTF8(str, ret, size);
+  return ret;
+};
+
 var getCFunc = ident => {
   var func = Module["_" + ident];
   // closure exported function
@@ -7452,13 +7459,6 @@ var getCFunc = ident => {
 var writeArrayToMemory = (array, buffer) => {
   assert(array.length >= 0, "writeArrayToMemory array must have a length (should be an array or typed array)");
   (growMemViews(), HEAP8).set(array, buffer);
-};
-
-var stringToUTF8OnStack = str => {
-  var size = lengthBytesUTF8(str) + 1;
-  var ret = stackAlloc(size);
-  stringToUTF8(str, ret, size);
-  return ret;
 };
 
 /**
@@ -7946,7 +7946,7 @@ var wasmExports = await createWasm();
 // Imports from the Wasm binary.
 var ___wasm_call_ctors = createExportWrapper("__wasm_call_ctors", 0);
 
-var _main = Module["_main"] = createExportWrapper("main", 2);
+var _main = Module["_main"] = createExportWrapper("__main_argc_argv", 2);
 
 var ___getTypeName = createExportWrapper("__getTypeName", 1);
 
@@ -8062,12 +8062,19 @@ var _asyncify_stop_rewind = createExportWrapper("asyncify_stop_rewind", 0);
 // === Auto-generated postamble setup entry stuff ===
 var calledRun;
 
-function callMain() {
+function callMain(args = []) {
   assert(runDependencies == 0, 'cannot call main when async dependencies remain! (listen on Module["onRuntimeInitialized"])');
   assert(typeof onPreRuns === "undefined" || onPreRuns.length == 0, "cannot call main when preRun functions remain to be called");
   var entryFunction = _main;
-  var argc = 0;
-  var argv = 0;
+  args.unshift(thisProgram);
+  var argc = args.length;
+  var argv = stackAlloc((argc + 1) * 4);
+  var argv_ptr = argv;
+  args.forEach(arg => {
+    (growMemViews(), HEAPU32)[((argv_ptr) >> 2)] = stringToUTF8OnStack(arg);
+    argv_ptr += 4;
+  });
+  (growMemViews(), HEAPU32)[((argv_ptr) >> 2)] = 0;
   try {
     var ret = entryFunction(argc, argv);
     // if we're not running an evented main loop, it's time to exit
@@ -8089,7 +8096,7 @@ function stackCheckInit() {
   writeStackCookie();
 }
 
-function run() {
+function run(args = arguments_) {
   if (runDependencies > 0) {
     dependenciesFulfilled = run;
     return;
@@ -8119,7 +8126,7 @@ function run() {
     Module["onRuntimeInitialized"]?.();
     consumedModuleProp("onRuntimeInitialized");
     var noInitialRun = Module["noInitialRun"] || false;
-    if (!noInitialRun) callMain();
+    if (!noInitialRun) callMain(args);
     postRun();
   }
   if (Module["setStatus"]) {

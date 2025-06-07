@@ -10,7 +10,6 @@ const c = @cImport({
 });
 
 // Core modules
-const rtp = @import("zig/rtp/rtp.zig");
 const Aggregator = @import("zig/wfbprocessor.zig").Aggregator;
 const RxFrame = @import("zig/RxFrame.zig").RxFrame;
 const zig_print = @import("zig/utils.zig").zig_print;
@@ -87,7 +86,12 @@ export fn init_zig() void {
     };
 
     mutex = std.Thread.Mutex{};
-    zig_print("WiFi video receiver initialized successfully\n", .{});
+    zig_print("aggregator initialized successfully\n", .{});
+
+    os.init(allocator);
+    zig_print("os specific initialized successfully\n", .{});
+
+    zig_print("Ziggly Diggly Doo Initialized Successfully Hooray!\n", .{});
 }
 
 /// Clean up resources

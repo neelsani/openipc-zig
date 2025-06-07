@@ -7,35 +7,39 @@ const c = @cImport({
 });
 const rtp = @import("../rtp/rtp.zig");
 
+var depacketizer: ?rtp.RtpDepacketizer = null;
+
 extern fn displayFrame(data_ptr: [*]const u8, data_len: usize, codec_type: u32, is_key_frame: bool) void;
+
+pub fn init(allocator: std.mem.Allocator) void {
+    depacketizer = rtp.RtpDepacketizer.init(allocator);
+    zig_print("depacketizer initialized!\n", .{});
+
+    zig_print("wasm specific initialized!\n", .{});
+}
 
 pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
     zig_print("Processing RTP packet: {} bytes\n", .{data.len});
 
-    var parsed_payload = rtp.parse(allocator, data) catch |err| {
-        zig_err("RTP parsing failed: {any}\n", .{err});
-        return;
-    };
+    if (depacketizer) |*depak| {
+        var result = depak.processRtpPacket(data) catch |err| {
+            zig_err("Failed to parse rtp frame {any}!!\n", .{err});
+            return;
+        };
 
-    switch (parsed_payload) {
-        .h264 => |*frame_data| {
-            zig_print("Received H.264 frame: NAL type {any}, key frame: {}\n", .{ frame_data.nal_type, frame_data.is_key_frame });
-            displayFrame(frame_data.data.ptr, frame_data.data.len, 0, frame_data.is_key_frame);
+        if (result) |*frame| {
+            defer frame.deinit(allocator);
+            displayFrame(frame.data.ptr, @intCast(frame.data.len), @intFromEnum(frame.codec), frame.is_keyframe);
+        }
+    } else {
+        zig_err("Warning depacketizer not initialized!!\n", .{});
+    }
+}
 
-            // Clean up allocated memory
-            frame_data.deinit(allocator);
-        },
-        .h265 => |*frame_data| {
-            zig_print("Received H.265 frame: NAL type {any}, key frame: {}\n", .{ frame_data.nal_type, frame_data.is_key_frame });
-            displayFrame(frame_data.data.ptr, frame_data.data.len, 1, frame_data.is_key_frame);
-
-            // Clean up allocated memory
-
-            frame_data.deinit(allocator);
-        },
-        .unknown => {
-            zig_err("Received packet with unknown codec\n", .{});
-        },
+pub fn deinit(allocator: std.mem.Allocator) void {
+    _ = allocator;
+    if (depacketizer) |dep| {
+        dep.deinit();
     }
 }
 // Re-export pthread types and functions
