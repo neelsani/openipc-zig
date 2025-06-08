@@ -55,6 +55,5 @@ pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
     zig_print("Sent RTP packet: {} bytes\n", .{sent});
 }
 pub fn getGsKey(allocator: std.mem.Allocator) ![]u8 {
-    _ = allocator;
-    return "gs.key";
+    return try allocator.dupe(u8, "gs.key");
 }
