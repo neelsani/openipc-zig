@@ -70,7 +70,7 @@ pub fn getGsKey(allocator: std.mem.Allocator) ![]u8 {
 
     const buffer = buffer_ptr.?[0..@intCast(length)];
     const result = try allocator.dupe(u8, buffer);
-    zig_print("{s}\n", .{result});
+    zig_print("pulled key of len -> {d}\n", .{result.len});
     // Free the JavaScript-allocated buffer
     js_freeKeyBuffer(buffer_ptr);
 
