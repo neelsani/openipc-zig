@@ -140,7 +140,7 @@ const formatValue = (value: number, unit: string): string => {
     case 'dBm':
       return `${value} ${unit}`;
     case 'Mbps':
-      return `${value.toFixed(1)} ${unit}`;
+      return `${value.toFixed(3)} ${unit}`;
     case 'dB':
       return `${value.toFixed(1)} ${unit}`;
     case 'packets':

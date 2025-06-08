@@ -5,9 +5,13 @@ const net = std.net;
 
 var conn: ?std.posix.socket_t = null;
 var target_addr: ?net.Address = null;
+var allocator1: ?std.mem.Allocator = null;
 pub fn init(allocator: std.mem.Allocator) void {
-    _ = allocator;
+    allocator1 = allocator;
     zig_print("posix specific initialized!\n", .{});
+}
+export fn handle_Rtpdata(data: [*]const u8, len: u16) void {
+    handleRtp(allocator1.?, data[0..len]);
 }
 
 pub fn deinit(allocator: std.mem.Allocator) void {

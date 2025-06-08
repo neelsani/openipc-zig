@@ -27,7 +27,7 @@ extern "C"
 			std::cerr << "No devices found!" << std::endl;
 			return;
 		}
-		//std::cout << "Hello" << std::endl;
+		// std::cout << "Hello" << std::endl;
 		const DeviceId &selectedDevice = devices[i];
 
 		std::string keyPath = "gs.key";
@@ -109,9 +109,10 @@ int main(int argc, char *argv[])
 	int arg1 = (argc >= 2) ? std::atoi(argv[1]) : 0;
 	int arg2 = (argc >= 3) ? std::atoi(argv[2]) : 161;
 
-	startReceiver(0, static_cast<ChannelWidth_t>(arg1), arg2);
+	startReceiver(1, static_cast<ChannelWidth_t>(arg1), arg2);
 	std::cin.get();
 	stopReceiver();
+	std::cout << "HELLO" << std::endl;
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 #endif
 

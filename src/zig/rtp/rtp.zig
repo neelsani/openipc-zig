@@ -72,7 +72,6 @@ const DepacketizedFrame = struct {
     is_keyframe: bool,
     codec: enum(u32) { h264 = 0, h265 = 1 },
 
-    // Add profile information
     profile: union(enum) {
         h264: H264Profile,
         h265: H265Profile,
@@ -93,7 +92,7 @@ const FragmentationState = struct {
 
     pub fn init(allocator: Allocator) FragmentationState {
         return FragmentationState{
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = std.ArrayList(u8).initCapacity(allocator, 64 * 1024) catch std.ArrayList(u8).init(allocator),
             .timestamp = 0,
             .is_first = false,
             .nal_type = 0,
@@ -109,7 +108,7 @@ const FragmentationState = struct {
         self.is_first = false;
     }
 };
-// Add these after your existing NAL type enums
+
 const H264Profile = enum(u8) {
     baseline = 66,
     main = 77,
@@ -131,7 +130,6 @@ const H265Profile = enum(u8) {
     unknown = 255,
 };
 
-// Add profile information to your RtpDepacketizer struct
 pub const RtpDepacketizer = struct {
     allocator: Allocator,
     h264_frag_state: FragmentationState,
@@ -142,11 +140,17 @@ pub const RtpDepacketizer = struct {
     sps_h265: ?[]u8,
     pps_h265: ?[]u8,
 
-    // Add these new fields for profile detection
+    // Profile detection cache
     h264_profile: H264Profile = .unknown,
     h265_profile: H265Profile = .unknown,
     h264_level: u8 = 0,
     h265_level: u8 = 0,
+    h264_profile_detected: bool = false,
+    h265_profile_detected: bool = false,
+
+    // Pre-allocated buffers for performance
+    frame_buffer: std.ArrayList(u8),
+    temp_buffer: std.ArrayList(u8),
 
     const ANNEX_B_START_CODE = [_]u8{ 0x00, 0x00, 0x00, 0x01 };
 
@@ -160,12 +164,16 @@ pub const RtpDepacketizer = struct {
             .vps_h265 = null,
             .sps_h265 = null,
             .pps_h265 = null,
+            .frame_buffer = std.ArrayList(u8).initCapacity(allocator, 1024 * 1024) catch std.ArrayList(u8).init(allocator),
+            .temp_buffer = std.ArrayList(u8).initCapacity(allocator, 64 * 1024) catch std.ArrayList(u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *RtpDepacketizer) void {
         self.h264_frag_state.deinit();
         self.h265_frag_state.deinit();
+        self.frame_buffer.deinit();
+        self.temp_buffer.deinit();
         if (self.sps_h264) |sps| self.allocator.free(sps);
         if (self.pps_h264) |pps| self.allocator.free(pps);
         if (self.vps_h265) |vps| self.allocator.free(vps);
@@ -173,12 +181,9 @@ pub const RtpDepacketizer = struct {
         if (self.pps_h265) |pps| self.allocator.free(pps);
     }
 
-    // Add these functions inside your RtpDepacketizer struct
-
     fn detectH264Profile(sps_data: []const u8) struct { profile: H264Profile, level: u8 } {
         if (sps_data.len < 4) return .{ .profile = .unknown, .level = 0 };
 
-        // Skip NAL header (1 byte), profile is at byte 1
         const profile_idc = sps_data[1];
         const level_idc = sps_data[3];
 
@@ -199,34 +204,14 @@ pub const RtpDepacketizer = struct {
     fn detectH265Profile(sps_data: []const u8) struct { profile: H265Profile, level: u8 } {
         if (sps_data.len < 8) return .{ .profile = .unknown, .level = 0 };
 
-        var offset: usize = 2; // Skip NAL header
-
-        // Skip VPS ID (4 bits) + max_sub_layers_minus1 (3 bits) + temporal_id_nesting_flag (1 bit)
-        offset += 1;
-
+        var offset: usize = 3; // Skip NAL header + VPS/layer info
         if (offset >= sps_data.len) return .{ .profile = .unknown, .level = 0 };
 
-        // Parse profile_tier_level structure
         const profile_tier_byte = sps_data[offset];
-        const general_profile_space = (profile_tier_byte >> 6) & 0x03;
-        const general_tier_flag = (profile_tier_byte >> 5) & 0x01;
         const general_profile_idc = profile_tier_byte & 0x1F;
 
-        zig_print("profile_tier byte: 0x{X:0>2}\n", .{profile_tier_byte});
-        zig_print("  profile_space: {}\n", .{general_profile_space});
-        zig_print("  tier_flag: {}\n", .{general_tier_flag});
-        zig_print("  profile_idc: {}\n", .{general_profile_idc});
-
-        // Skip 32 profile compatibility flags (4 bytes)
-        offset += 4;
-
-        // Skip 6 bytes of constraint flags and reserved bits
-        offset += 6;
-
-        // Get level_idc
+        offset += 10; // Skip profile compatibility flags and constraint flags
         const general_level_idc = if (offset < sps_data.len) sps_data[offset] else 0;
-
-        zig_print("level_idc: 0x{X:0>2} ({})\n", .{ general_level_idc, general_level_idc });
 
         const profile: H265Profile = switch (general_profile_idc) {
             1 => .main,
@@ -235,10 +220,7 @@ pub const RtpDepacketizer = struct {
             4 => .range_extensions,
             5 => .high_throughput,
             9 => .screen_content_coding,
-            else => blk: {
-                zig_print("Unknown profile_idc: {}\n", .{general_profile_idc});
-                break :blk .unknown;
-            },
+            else => .unknown,
         };
 
         return .{ .profile = profile, .level = general_level_idc };
@@ -254,7 +236,7 @@ pub const RtpDepacketizer = struct {
                 .high10 => "avc1.6E001E",
                 .high422 => "avc1.7A001E",
                 .high444 => "avc1.F4001E",
-                .unknown => "avc1.42E01E", // Default to baseline
+                .unknown => "avc1.42E01E",
             },
             .h265 => switch (self.h265_profile) {
                 .main => "hev1.1.6.L93.B0",
@@ -263,57 +245,73 @@ pub const RtpDepacketizer = struct {
                 .range_extensions => "hev1.4.4.L93.B0",
                 .high_throughput => "hev1.5.4.L93.B0",
                 .screen_content_coding => "hev1.9.4.L93.B0",
-                .unknown => "hev1.1.6.L93.B0", // Default to main
+                .unknown => "hev1.1.6.L93.B0",
             },
         };
     }
 
-    // Fix the parameter set storage functions
     fn storeH264Sps(self: *RtpDepacketizer, sps_data: []const u8) !void {
         if (self.sps_h264) |old_sps| self.allocator.free(old_sps);
         self.sps_h264 = try self.allocator.dupe(u8, sps_data);
 
-        // Detect profile and level
-        const profile_info = detectH264Profile(sps_data);
-        self.h264_profile = profile_info.profile;
-        self.h264_level = profile_info.level;
+        if (!self.h264_profile_detected) {
+            const profile_info = detectH264Profile(sps_data);
+            self.h264_profile = profile_info.profile;
+            self.h264_level = profile_info.level;
+            self.h264_profile_detected = true;
 
-        zig_print("Stored H.264 SPS: {} bytes, Profile: {s}, Level: {}\n", .{ sps_data.len, @tagName(self.h264_profile), self.h264_level });
-
-        // Generate codec string for WebCodecs
-        const codec_string = self.generateCodecString(.h264);
-        zig_print("H.264 Codec string: {s}\n", .{codec_string});
+            // zig_print("Stored H.264 SPS: {} bytes, Profile: {s}, Level: {}\n", .{ sps_data.len, @tagName(self.h264_profile), self.h264_level });
+        }
     }
 
     fn storeH264Pps(self: *RtpDepacketizer, pps_data: []const u8) !void {
         if (self.pps_h264) |old_pps| self.allocator.free(old_pps);
         self.pps_h264 = try self.allocator.dupe(u8, pps_data);
-        zig_print("Stored H.264 PPS: {} bytes\n", .{pps_data.len});
+        // zig_print("Stored H.264 PPS: {} bytes\n", .{pps_data.len});
     }
 
-    // Fix codec detection to handle single NAL units properly
+    fn storeH265Vps(self: *RtpDepacketizer, vps_data: []const u8) !void {
+        if (self.vps_h265) |old_vps| self.allocator.free(old_vps);
+        self.vps_h265 = try self.allocator.dupe(u8, vps_data);
+    }
+
+    fn storeH265Sps(self: *RtpDepacketizer, sps_data: []const u8) !void {
+        if (self.sps_h265) |old_sps| self.allocator.free(old_sps);
+        self.sps_h265 = try self.allocator.dupe(u8, sps_data);
+
+        if (!self.h265_profile_detected) {
+            const profile_info = detectH265Profile(sps_data);
+            self.h265_profile = profile_info.profile;
+            self.h265_level = profile_info.level;
+            self.h265_profile_detected = true;
+
+            // zig_print("Stored H.265 SPS: {} bytes, Profile: {s}, Level: {}\n", .{ sps_data.len, @tagName(self.h265_profile), self.h265_level });
+        }
+    }
+
+    fn storeH265Pps(self: *RtpDepacketizer, pps_data: []const u8) !void {
+        if (self.pps_h265) |old_pps| self.allocator.free(old_pps);
+        self.pps_h265 = try self.allocator.dupe(u8, pps_data);
+    }
+
     fn detectCodecFromPayload(payload: []const u8) ?enum { h264, h265 } {
         if (payload.len == 0) return null;
 
-        // H.265 detection FIRST to avoid overlap
+        // H.265 detection first (more specific)
         if (payload.len >= 2) {
             const h265_nal_type = (payload[0] >> 1) & 0x3F;
-
-            // Check for specific H.265 NAL unit types used in RTP
-            if (h265_nal_type == 48 or h265_nal_type == 49 or // AP or FU packets
+            if (h265_nal_type == 48 or h265_nal_type == 49 or
                 (h265_nal_type >= 32 and h265_nal_type <= 40))
-            { // VPS, SPS, PPS, and other parameter sets
+            {
                 return .h265;
             }
         }
 
-        // H.264 detection AFTER H.265 check
+        // H.264 detection
         const h264_nal_type = payload[0] & 0x1F;
-
-        // Check for H.264 RTP packetization types or single NAL units
-        if (h264_nal_type == 24 or h264_nal_type == 28 or // STAP-A or FU-A
+        if (h264_nal_type == 24 or h264_nal_type == 28 or
             (h264_nal_type >= 1 and h264_nal_type <= 12))
-        { // Single NAL units
+        {
             return .h264;
         }
 
@@ -325,25 +323,27 @@ pub const RtpDepacketizer = struct {
 
         const header = self.parseRtpHeader(data);
         const payload = data[12..];
+        if (payload.len == 0) return null;
 
-        // Auto-detect codec from payload instead of relying on payload type
         const codec = detectCodecFromPayload(payload) orelse return null;
 
+        // Early exit if profile not detected for non-parameter sets
+        const first_byte = payload[0];
+        const is_param_set = switch (codec) {
+            .h264 => (first_byte & 0x1F) >= 7 and (first_byte & 0x1F) <= 8,
+            .h265 => ((first_byte >> 1) & 0x3F) >= 32 and ((first_byte >> 1) & 0x3F) <= 34,
+        };
+
+        if (!is_param_set) {
+            switch (codec) {
+                .h264 => if (!self.h264_profile_detected) return null,
+                .h265 => if (!self.h265_profile_detected) return null,
+            }
+        }
+
         return switch (codec) {
-            .h264 => {
-                const pak = try self.processH264Packet(payload, header);
-                if (self.h264_profile == .unknown) {
-                    return null;
-                }
-                return pak;
-            },
-            .h265 => {
-                const pak = try self.processH265Packet(payload, header);
-                if (self.h265_profile == .unknown) {
-                    return null;
-                }
-                return pak;
-            },
+            .h264 => self.processH264Packet(payload, header),
+            .h265 => self.processH265Packet(payload, header),
         };
     }
 
@@ -388,17 +388,17 @@ pub const RtpDepacketizer = struct {
         const nal_type: u8 = (payload[0] >> 1) & 0x3F;
 
         return switch (nal_type) {
-            49 => self.processH265FragmentationUnit(payload, header), // FU
-            48 => self.processH265AggregationPacket(payload, header), // AP
-            32 => { // VPS
+            49 => self.processH265FragmentationUnit(payload, header),
+            48 => self.processH265AggregationPacket(payload, header),
+            32 => {
                 try self.storeH265Vps(payload);
                 return null;
             },
-            33 => { // SPS
+            33 => {
                 try self.storeH265Sps(payload);
                 return null;
             },
-            34 => { // PPS
+            34 => {
                 try self.storeH265Pps(payload);
                 return null;
             },
@@ -421,17 +421,14 @@ pub const RtpDepacketizer = struct {
             self.h264_frag_state.is_first = true;
             self.h264_frag_state.nal_type = nal_type;
 
-            // Reconstruct NAL header
             const reconstructed_nal = (fu_indicator & 0xE0) | nal_type;
             try self.h264_frag_state.buffer.append(reconstructed_nal);
         }
 
-        // Append fragment data
         try self.h264_frag_state.buffer.appendSlice(payload[2..]);
 
         if (end_bit) {
-            return try self.createFrame(self.h264_frag_state.buffer.items, self.h264_frag_state.timestamp, nal_type == 5, // IDR frame
-                .h264);
+            return try self.createFrame(self.h264_frag_state.buffer.items, self.h264_frag_state.timestamp, nal_type == 5, .h264);
         }
 
         return null;
@@ -451,16 +448,14 @@ pub const RtpDepacketizer = struct {
             self.h265_frag_state.is_first = true;
             self.h265_frag_state.nal_type = nal_type;
 
-            // Reconstruct NAL header (2 bytes for H.265)
             try self.h265_frag_state.buffer.append((nal_type << 1) | (payload[0] & 0x01));
             try self.h265_frag_state.buffer.append(payload[1]);
         }
 
-        // Append fragment data
         try self.h265_frag_state.buffer.appendSlice(payload[3..]);
 
         if (end_bit) {
-            const is_keyframe = nal_type >= 16 and nal_type <= 23; // IRAP pictures
+            const is_keyframe = nal_type >= 16 and nal_type <= 23;
             return try self.createFrame(self.h265_frag_state.buffer.items, self.h265_frag_state.timestamp, is_keyframe, .h265);
         }
 
@@ -469,7 +464,7 @@ pub const RtpDepacketizer = struct {
 
     fn processH264SingleNalu(self: *RtpDepacketizer, payload: []const u8, header: RtpHeader) !?DepacketizedFrame {
         const nal_type = payload[0] & 0x1F;
-        const is_keyframe = nal_type == 5; // IDR
+        const is_keyframe = nal_type == 5;
         return try self.createFrame(payload, header.timestamp, is_keyframe, .h264);
     }
 
@@ -480,10 +475,9 @@ pub const RtpDepacketizer = struct {
     }
 
     fn processH264StapA(self: *RtpDepacketizer, payload: []const u8, header: RtpHeader) !?DepacketizedFrame {
-        var result = std.ArrayList(u8).init(self.allocator);
-        defer result.deinit();
+        self.temp_buffer.clearRetainingCapacity();
 
-        var offset: usize = 1; // Skip STAP-A header
+        var offset: usize = 1;
         var is_keyframe = false;
 
         while (offset < payload.len) {
@@ -499,20 +493,19 @@ pub const RtpDepacketizer = struct {
 
             if (nal_type == 5) is_keyframe = true;
 
-            try result.appendSlice(&ANNEX_B_START_CODE);
-            try result.appendSlice(nalu);
+            try self.temp_buffer.appendSlice(&ANNEX_B_START_CODE);
+            try self.temp_buffer.appendSlice(nalu);
 
             offset += nalu_size;
         }
 
-        return try self.createFrameFromBuffer(result.items, header.timestamp, is_keyframe, .h264);
+        return try self.createFrameFromBuffer(self.temp_buffer.items, header.timestamp, is_keyframe, .h264);
     }
 
     fn processH265AggregationPacket(self: *RtpDepacketizer, payload: []const u8, header: RtpHeader) !?DepacketizedFrame {
-        var result = std.ArrayList(u8).init(self.allocator);
-        defer result.deinit();
+        self.temp_buffer.clearRetainingCapacity();
 
-        var offset: usize = 2; // Skip AP header
+        var offset: usize = 2;
         var is_keyframe = false;
 
         while (offset < payload.len) {
@@ -528,60 +521,50 @@ pub const RtpDepacketizer = struct {
 
             if (nal_type >= 16 and nal_type <= 23) is_keyframe = true;
 
-            try result.appendSlice(&ANNEX_B_START_CODE);
-            try result.appendSlice(nalu);
+            try self.temp_buffer.appendSlice(&ANNEX_B_START_CODE);
+            try self.temp_buffer.appendSlice(nalu);
 
             offset += nalu_size;
         }
 
-        return try self.createFrameFromBuffer(result.items, header.timestamp, is_keyframe, .h265);
+        return try self.createFrameFromBuffer(self.temp_buffer.items, header.timestamp, is_keyframe, .h265);
     }
 
-    // Fix createFrame to ensure parameter sets are properly formatted
     fn createFrame(self: *RtpDepacketizer, data: []const u8, timestamp: u32, is_keyframe: bool, codec: @TypeOf(@as(DepacketizedFrame, undefined).codec)) !DepacketizedFrame {
-        var frame_data = std.ArrayList(u8).init(self.allocator);
+        self.frame_buffer.clearRetainingCapacity();
 
-        // Add parameter sets for keyframes with validation
         if (is_keyframe) {
             switch (codec) {
                 .h264 => {
                     if (self.sps_h264) |sps| {
-                        try frame_data.appendSlice(&ANNEX_B_START_CODE);
-                        try frame_data.appendSlice(sps);
-                        zig_print("Added SPS to keyframe: {} bytes\n", .{sps.len});
-                    } else {
-                        zig_print("Warning: No SPS available for H.264 keyframe\n", .{});
+                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
+                        try self.frame_buffer.appendSlice(sps);
                     }
-
                     if (self.pps_h264) |pps| {
-                        try frame_data.appendSlice(&ANNEX_B_START_CODE);
-                        try frame_data.appendSlice(pps);
-                        zig_print("Added PPS to keyframe: {} bytes\n", .{pps.len});
-                    } else {
-                        zig_print("Warning: No PPS available for H.264 keyframe\n", .{});
+                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
+                        try self.frame_buffer.appendSlice(pps);
                     }
                 },
                 .h265 => {
                     if (self.vps_h265) |vps| {
-                        try frame_data.appendSlice(&ANNEX_B_START_CODE);
-                        try frame_data.appendSlice(vps);
+                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
+                        try self.frame_buffer.appendSlice(vps);
                     }
                     if (self.sps_h265) |sps| {
-                        try frame_data.appendSlice(&ANNEX_B_START_CODE);
-                        try frame_data.appendSlice(sps);
+                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
+                        try self.frame_buffer.appendSlice(sps);
                     }
                     if (self.pps_h265) |pps| {
-                        try frame_data.appendSlice(&ANNEX_B_START_CODE);
-                        try frame_data.appendSlice(pps);
+                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
+                        try self.frame_buffer.appendSlice(pps);
                     }
                 },
             }
         }
 
-        try frame_data.appendSlice(&ANNEX_B_START_CODE);
-        try frame_data.appendSlice(data);
+        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
+        try self.frame_buffer.appendSlice(data);
 
-        // Set profile information
         const profile_info = switch (codec) {
             .h264 => @as(@TypeOf(@as(DepacketizedFrame, undefined).profile), .{ .h264 = self.h264_profile }),
             .h265 => @as(@TypeOf(@as(DepacketizedFrame, undefined).profile), .{ .h265 = self.h265_profile }),
@@ -593,7 +576,7 @@ pub const RtpDepacketizer = struct {
         };
 
         return DepacketizedFrame{
-            .data = try frame_data.toOwnedSlice(),
+            .data = try self.frame_buffer.toOwnedSlice(),
             .timestamp = timestamp,
             .is_keyframe = is_keyframe,
             .codec = codec,
@@ -604,37 +587,24 @@ pub const RtpDepacketizer = struct {
 
     fn createFrameFromBuffer(self: *RtpDepacketizer, data: []const u8, timestamp: u32, is_keyframe: bool, codec: @TypeOf(@as(DepacketizedFrame, undefined).codec)) !DepacketizedFrame {
         const owned_data = try self.allocator.dupe(u8, data);
+
+        const profile_info = switch (codec) {
+            .h264 => @as(@TypeOf(@as(DepacketizedFrame, undefined).profile), .{ .h264 = self.h264_profile }),
+            .h265 => @as(@TypeOf(@as(DepacketizedFrame, undefined).profile), .{ .h265 = self.h265_profile }),
+        };
+
+        const level = switch (codec) {
+            .h264 => self.h264_level,
+            .h265 => self.h265_level,
+        };
+
         return DepacketizedFrame{
             .data = owned_data,
             .timestamp = timestamp,
             .is_keyframe = is_keyframe,
             .codec = codec,
+            .profile = profile_info,
+            .level = level,
         };
-    }
-
-    fn storeH265Vps(self: *RtpDepacketizer, vps_data: []const u8) !void {
-        if (self.vps_h265) |old_vps| self.allocator.free(old_vps);
-        self.vps_h265 = try self.allocator.dupe(u8, vps_data);
-    }
-
-    fn storeH265Sps(self: *RtpDepacketizer, sps_data: []const u8) !void {
-        if (self.sps_h265) |old_sps| self.allocator.free(old_sps);
-        self.sps_h265 = try self.allocator.dupe(u8, sps_data);
-
-        // Detect profile and level
-        const profile_info = detectH265Profile(sps_data);
-        self.h265_profile = profile_info.profile;
-        self.h265_level = profile_info.level;
-
-        zig_print("Stored H.265 SPS: {} bytes, Profile: {s}, Level: {}\n", .{ sps_data.len, @tagName(self.h265_profile), self.h265_level });
-
-        // Generate codec string for WebCodecs
-        const codec_string = self.generateCodecString(.h265);
-        zig_print("H.265 Codec string: {s}\n", .{codec_string});
-    }
-
-    fn storeH265Pps(self: *RtpDepacketizer, pps_data: []const u8) !void {
-        if (self.pps_h265) |old_pps| self.allocator.free(old_pps);
-        self.pps_h265 = try self.allocator.dupe(u8, pps_data);
     }
 };

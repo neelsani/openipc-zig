@@ -106,15 +106,7 @@ class VideoSystem {
     const baseConfig: VideoDecoderConfig = {
       codec: codecString,
       hardwareAcceleration: 'prefer-software' as const,
-      optimizeForLatency: true,
-      codedWidth: 1920,
-      codedHeight: 1080,
-      colorSpace: {
-        fullRange: false,
-        matrix: "bt709" as const,
-        primaries: "bt709" as const,
-        transfer: "bt709" as const,
-      }
+      
     };
 
     // Special handling for H.265 hardware acceleration
@@ -354,7 +346,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
   const handleIEEFrame = useCallback((rssi: number, snr: number) => {
     setStats(prevStats => ({
       ...prevStats,
-      rssi: -1 * rssi,
+      rssi: rssi,
       snr: snr,
       packetCount: prevStats.packetCount + 1,
     }));

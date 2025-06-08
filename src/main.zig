@@ -43,7 +43,7 @@ pub const RxPktAttrib = extern struct {
     stbc: u8,
     ldpc: u8,
     sgi: u8,
-    rssi: [2]u8,
+    rssi: [2]i8,
     snr: [2]i8,
     pkt_rpt_type: u32,
 };
