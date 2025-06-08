@@ -9,7 +9,7 @@ const rtp = @import("../rtp/rtp.zig");
 
 var depacketizer: ?rtp.RtpDepacketizer = null;
 
-extern fn displayFrame(data_ptr: [*]const u8, data_len: usize, codec_type: u32, is_key_frame: bool) void;
+extern fn displayFrame(data_ptr: [*]const u8, data_len: usize, codec_type: u32, profile: u32, is_key_frame: bool) void;
 
 pub extern fn onIEEFrame(rssi: u8, snr: i8) void;
 
@@ -31,7 +31,7 @@ pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
 
         if (result) |*frame| {
             defer frame.deinit(allocator);
-            displayFrame(frame.data.ptr, @intCast(frame.data.len), @intFromEnum(frame.codec), frame.is_keyframe);
+            displayFrame(frame.data.ptr, @intCast(frame.data.len), @intFromEnum(frame.codec), @intFromEnum(std.meta.activeTag(frame.profile)), frame.is_keyframe);
         }
     } else {
         zig_err("Warning depacketizer not initialized!!\n", .{});

@@ -1,9 +1,280 @@
-import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode, type RefObject, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import MainModuleFactory, { type MainModule } from '../wasm';
 import type { LinkStats } from '../types/device';
 
+// Separate video system management
+class VideoSystem {
+  private canvas: HTMLCanvasElement | null = null;
+  private ctx: CanvasRenderingContext2D | null = null;
+  private decoder: VideoDecoder | null = null;
+  private currentCodec: number = -1;
+  private currentProfile: number = -1;
+  private pendingFrames: Array<{ chunk: EncodedVideoChunk; timestamp: number }> = [];
+  private switchingCodec: boolean = false;
+  private initialized: boolean = false;
+
+  // Profile enum mappings from your Zig code
+  private readonly H264Profile = {
+    baseline: 66,
+    main: 77,
+    extended: 88,
+    high: 100,
+    high10: 110,
+    high422: 122,
+    high444: 244,
+    unknown: 255,
+  } as const;
+
+  private readonly H265Profile = {
+    main: 1,
+    main10: 2,
+    main_still_picture: 3,
+    range_extensions: 4,
+    high_throughput: 5,
+    screen_content_coding: 9,
+    unknown: 255,
+  } as const;
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    this.canvas = this.getOrCreateCanvas();
+    this.ctx = this.canvas.getContext('2d');
+    this.initialized = true;
+  }
+
+  private getOrCreateCanvas(): HTMLCanvasElement {
+    let canvas = document.getElementById('videoCanvas') as HTMLCanvasElement;
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.id = 'videoCanvas';
+      canvas.width = 1920;
+      canvas.height = 1080;
+      canvas.style.border = '1px solid #000';
+      document.body.appendChild(canvas);
+    }
+    return canvas;
+  }
+
+  private getCodecStringFromProfile(codecType: number, profile: number): string {
+    if (codecType === 0) { // H.264
+      switch (profile) {
+        case this.H264Profile.baseline:
+          return 'avc1.42E01E'; // Constrained Baseline Profile
+        case this.H264Profile.main:
+          return 'avc1.4D401E'; // Main Profile
+        case this.H264Profile.extended:
+          return 'avc1.58401E'; // Extended Profile
+        case this.H264Profile.high:
+          return 'avc1.64001E'; // High Profile
+        case this.H264Profile.high10:
+          return 'avc1.6E001E'; // High 10 Profile
+        case this.H264Profile.high422:
+          return 'avc1.7A001E'; // High 4:2:2 Profile
+        case this.H264Profile.high444:
+          return 'avc1.F4001E'; // High 4:4:4 Profile
+        default:
+          console.warn(`Unknown H.264 profile: ${profile}, using baseline`);
+          return 'avc1.42E01E'; // Default to baseline
+      }
+    } else if (codecType === 1) { // H.265
+      switch (profile) {
+        case this.H265Profile.main:
+          return 'hev1.1.6.L93.B0'; // Main Profile
+        case this.H265Profile.main10:
+          return 'hev1.2.4.L93.B0'; // Main 10 Profile
+        case this.H265Profile.main_still_picture:
+          return 'hev1.3.6.L93.B0'; // Main Still Picture Profile
+        case this.H265Profile.range_extensions:
+          return 'hev1.4.4.L93.B0'; // Range Extensions Profile
+        case this.H265Profile.high_throughput:
+          return 'hev1.5.4.L93.B0'; // High Throughput Profile
+        case this.H265Profile.screen_content_coding:
+          return 'hev1.9.4.L93.B0'; // Screen Content Coding Profile
+        default:
+          console.warn(`Unknown H.265 profile: ${profile}, using main`);
+          return 'hev1.1.6.L93.B0'; // Default to main
+      }
+    }
+    
+    throw new Error(`Unsupported codec type: ${codecType}`);
+  }
+
+  private getCodecConfig(codecType: number, profile: number) {
+    const codecString = this.getCodecStringFromProfile(codecType, profile);
+    
+    const baseConfig: VideoDecoderConfig = {
+      codec: codecString,
+      hardwareAcceleration: 'prefer-software' as const,
+      optimizeForLatency: true,
+      codedWidth: 1920,
+      codedHeight: 1080,
+      colorSpace: {
+        fullRange: false,
+        matrix: "bt709" as const,
+        primaries: "bt709" as const,
+        transfer: "bt709" as const,
+      }
+    };
+
+    // Special handling for H.265 hardware acceleration
+    if (codecType === 1) {
+      baseConfig.hardwareAcceleration = 'prefer-hardware';
+    }
+
+    console.log(`Generated codec config: ${codecString} for codec ${codecType}, profile ${profile}`);
+    return baseConfig;
+  }
+
+  private async createDecoder(codecType: number, profile: number): Promise<VideoDecoder> {
+    const config = this.getCodecConfig(codecType, profile);
+    
+    // Check codec support first
+    const support = await VideoDecoder.isConfigSupported(config);
+    if (!support.supported) {
+      throw new Error(`Codec not supported: ${config.codec} (codec: ${codecType}, profile: ${profile})`);
+    }
+
+    console.log(`Creating decoder with codec: ${config.codec}`);
+    return new VideoDecoder({
+      output: (frame) => this.handleFrame(frame),
+      error: (error) => this.handleDecoderError(error)
+    });
+  }
+
+  private handleFrame(frame: VideoFrame): void {
+    console.log(frame);
+    if (!this.canvas || !this.ctx) return;
+
+    // Resize canvas if needed
+    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
+      this.canvas.width = frame.displayWidth;
+      this.canvas.height = frame.displayHeight;
+    }
+
+    // Draw frame
+    this.ctx.drawImage(frame, 0, 0);
+    frame.close();
+
+    // Process pending frames after successful decode
+    this.processPendingFrames();
+  }
+
+  private handleDecoderError(error: DOMException): void {
+    console.error('Video decoder error:', error);
+    this.cleanup();
+  }
+
+  private processPendingFrames(): void {
+    if (!this.switchingCodec || this.pendingFrames.length === 0) return;
+
+    console.log('Processing', this.pendingFrames.length, 'pending frames');
+    const pendingFrames = this.pendingFrames.slice();
+    this.pendingFrames = [];
+    this.switchingCodec = false;
+
+    pendingFrames.forEach(({ chunk }) => {
+      try {
+        this.decoder?.decode(chunk);
+      } catch (e) {
+        console.error('Error decoding pending frame:', e);
+      }
+    });
+  }
+
+  async processFrame(frameData: Uint8Array, codecType: number, profile: number, isKeyFrame: boolean): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    // Handle codec or profile changes
+    if (this.currentCodec !== codecType || this.currentProfile !== profile) {
+      await this.switchCodec(codecType, profile);
+    }
+
+    // Ensure decoder exists
+    if (!this.decoder) {
+      this.decoder = await this.createDecoder(codecType, profile);
+      await this.decoder.configure(this.getCodecConfig(codecType, profile));
+    }
+
+    const chunk = new EncodedVideoChunk({
+      type: isKeyFrame ? 'key' : 'delta',
+      timestamp: performance.now() * 1000,
+      data: frameData
+    });
+
+    // Handle codec switching logic
+    if (this.switchingCodec) {
+      if (isKeyFrame) {
+        try {
+          this.decoder.decode(chunk);
+          this.switchingCodec = false;
+          console.log('Resumed decoding after codec/profile switch with keyframe');
+        } catch (error) {
+          console.error('Failed to decode keyframe after codec/profile switch:', error);
+          throw error;
+        }
+      } else {
+        this.pendingFrames.push({ chunk, timestamp: performance.now() });
+        console.log('Queued frame during codec/profile switch, waiting for keyframe');
+      }
+    } else {
+      try {
+        this.decoder.decode(chunk);
+      } catch (error) {
+        console.error('Failed to decode frame:', error);
+        if ((error as any).name === 'InvalidStateError') {
+          this.cleanup();
+        }
+        throw error;
+      }
+    }
+  }
+
+  private async switchCodec(newCodecType: number, newProfile: number): Promise<void> {
+    console.log('Codec/Profile change detected:', 
+      `${this.currentCodec}/${this.currentProfile} -> ${newCodecType}/${newProfile}`);
+    
+    // Close existing decoder
+    if (this.decoder) {
+      try {
+        this.decoder.close();
+      } catch (e) {
+        console.warn('Error closing decoder:', e);
+      }
+      this.decoder = null;
+    }
+
+    this.currentCodec = newCodecType;
+    this.currentProfile = newProfile;
+    this.switchingCodec = true;
+    this.pendingFrames = [];
+  }
+
+  private cleanup(): void {
+    if (this.decoder) {
+      try {
+        this.decoder.close();
+      } catch (e) {
+        console.warn('Error closing decoder during cleanup:', e);
+      }
+      this.decoder = null;
+    }
+    this.currentCodec = -1;
+    this.currentProfile = -1;
+    this.switchingCodec = false;
+    this.pendingFrames = [];
+  }
+
+  destroy(): void {
+    this.cleanup();
+    this.initialized = false;
+  }
+}
 
 
+// Improved context with better error handling
 interface WebAssemblyContextType {
   module: MainModule | null;
   isLoading: boolean;
@@ -13,13 +284,14 @@ interface WebAssemblyContextType {
   setCanvas: (canvas: HTMLCanvasElement | null) => void;
   outputLog: string;
   stats: LinkStats;
+  error: string | null;
 }
 
 const WebAssemblyContext = createContext<WebAssemblyContextType | undefined>(undefined);
 
 interface WebAssemblyProviderProps {
-  children: ReactNode;
-  maxLogEntries?: number; // Allow customization of log size
+  children: React.ReactNode;
+  maxLogEntries?: number;
 }
 
 export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({ 
@@ -31,6 +303,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
   const [webCodecsSupported, setWebCodecsSupported] = useState(false);
   const [outputLog, setOutputLog] = useState('');
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<LinkStats>({
     rssi: 0,
     snr: 0,
@@ -44,241 +317,122 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
   
   const outputLogEntriesRef = useRef<string[]>([]);
   const moduleRef = useRef<MainModule | null>(null);
+  const videoSystemRef = useRef<VideoSystem | null>(null);
 
-  const addLogEntry = (text: string) => {
+  const addLogEntry = useCallback((text: string) => {
     outputLogEntriesRef.current.push(text);
     
-    // Remove oldest entries if we exceed the maximum
     if (outputLogEntriesRef.current.length > maxLogEntries) {
-      outputLogEntriesRef.current.shift(); // Remove first (oldest) entry
+      outputLogEntriesRef.current.shift();
     }
     
-    // Update the log string
     setOutputLog(outputLogEntriesRef.current.join('\n'));
-  };
+  }, [maxLogEntries]);
 
-
-const displayFrame = useCallback((frameData: Uint8Array, codec_type: number, is_key_frame: boolean) => {
-    const module = moduleRef.current as any;
-    if (!module) return;
-
-    if (!module.videoSystem) {
-      module.videoSystem = {
-        canvas: null,
-        ctx: null,
-        decoder: null,
-        initialized: false,
-        currentCodec: -1,
-        pendingFrames: [],
-        switchingCodec: false
-      };
-    }
-    
-    if (!module.videoSystem.initialized) {
-      // Create canvas if it doesn't exist
-      module.videoSystem.canvas = document.getElementById('videoCanvas');
-      if (!module.videoSystem.canvas) {
-        module.videoSystem.canvas = document.createElement('canvas');
-        module.videoSystem.canvas.id = 'videoCanvas';
-        module.videoSystem.canvas.width = 1920;
-        module.videoSystem.canvas.height = 1080;
-        module.videoSystem.canvas.style.border = '1px solid #000';
-        document.body.appendChild(module.videoSystem.canvas);
-      }
-      module.videoSystem.ctx = module.videoSystem.canvas.getContext('2d');
-      module.videoSystem.initialized = true;
-    }
-    
-    // Check if codec changed
-    if (module.videoSystem.currentCodec !== codec_type) {
-      console.log('Codec change detected:', module.videoSystem.currentCodec, '->', codec_type);
-      
-      // Close existing decoder
-      if (module.videoSystem.decoder) {
-        try {
-          module.videoSystem.decoder.close();
-        } catch (e) {
-          console.warn('Error closing decoder:', e);
-        }
-        module.videoSystem.decoder = null;
+  const displayFrame = useCallback(async (frameData: Uint8Array, codecType: number, profile: number, isKeyFrame: boolean) => {
+    try {
+      if (!videoSystemRef.current) {
+        videoSystemRef.current = new VideoSystem();
       }
       
-      module.videoSystem.currentCodec = codec_type;
-      module.videoSystem.switchingCodec = true;
-      module.videoSystem.pendingFrames = [];
-    }
-    
-    // Initialize decoder if needed
-    if (!module.videoSystem.decoder) {
-      var codec = codec_type === 0 ? 'avc1.42E01E' : 'hev1.1.6.L93.B0';
+      await videoSystemRef.current.processFrame(frameData, codecType, profile, isKeyFrame);
       
-      try {
-        module.videoSystem.decoder = new VideoDecoder({
-          output: function(frame) {
-            //console.log("runss")
-            var canvas = module.videoSystem.canvas;
-            var ctx = module.videoSystem.ctx;
-            
-            // Resize canvas if needed
-            if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-              canvas.width = frame.displayWidth;
-              canvas.height = frame.displayHeight;
-            }
-            console.log(frame)
-            // Draw frame
-            ctx.drawImage(frame, 0, 0);
-            frame.close();
-            
-            // Process any pending frames after successful decode
-            if (module.videoSystem.switchingCodec && module.videoSystem.pendingFrames.length > 0) {
-              console.log('Processing', module.videoSystem.pendingFrames.length, 'pending frames');
-              var pendingFrames = module.videoSystem.pendingFrames.slice();
-              module.videoSystem.pendingFrames = [];
-              module.videoSystem.switchingCodec = false;
-              
-              pendingFrames.forEach(function(pendingFrame: any) {
-                try {
-                  module.videoSystem.decoder.decode(pendingFrame.chunk);
-                } catch (e) {
-                  console.error('Error decoding pending frame:', e);
-                }
-              });
-            }
-          },
-          error: function(error) {
-            console.error('Video decoder error:', error);
-            module.videoSystem.decoder = null;
-            module.videoSystem.currentCodec = -1;
-            module.videoSystem.switchingCodec = false;
-            module.videoSystem.pendingFrames = [];
-          }
-        });
-        
-        module.videoSystem.decoder.configure({
-          codec: codec,
-         
-        });
-        
-        console.log('Decoder configured for codec:', codec);
-      } catch (error) {
-        console.error('Failed to initialize video decoder:', error);
-        return;
-      }
+      // Update stats
+      setStats(prevStats => ({
+        ...prevStats,
+        frameCount: prevStats.frameCount + 1,
+        codec: codecType === 0 ? 'H.264' : 'H.265'
+      }));
+      
+    } catch (error) {
+      console.error('Frame processing error:', error);
+      setError(`Frame processing failed: ${error}`);
     }
-    console.log(frameData)
-    // Create encoded chunk
-    var chunk = new EncodedVideoChunk({
-      type: is_key_frame ? 'key' : 'delta',
-      timestamp: performance.now() * 1000,
-      data: frameData
-    });
-    
-    // Handle codec switching logic
-    if (module.videoSystem.switchingCodec) {
-      if (is_key_frame) {
-        try {
-          module.videoSystem.decoder.decode(chunk);
-          module.videoSystem.switchingCodec = false;
-          console.log('Resumed decoding after codec switch with keyframe');
-        } catch (error) {
-          console.error('Failed to decode keyframe after codec switch:', error);
-        }
-      } else {
-        module.videoSystem.pendingFrames.push({
-          chunk: chunk,
-          timestamp: performance.now()
-        });
-        console.log('Queued frame during codec switch, waiting for keyframe');
-      }
-    } else {
-      try {
-        module.videoSystem.decoder.decode(chunk);
-      } catch (error) {
-        console.error('Failed to decode frame:', error);
-        if ((error as any).name === 'InvalidStateError') {
-          module.videoSystem.decoder = null;
-          module.videoSystem.currentCodec = -1;
-        }
-      }
-    }
+  }, []);
+
+  const handleIEEFrame = useCallback((rssi: number, snr: number) => {
+    setStats(prevStats => ({
+      ...prevStats,
+      rssi: -1 * rssi,
+      snr: snr,
+      packetCount: prevStats.packetCount + 1,
+    }));
   }, []);
 
   // Initialize WebCodecs support check
   useEffect(() => {
-    setWebCodecsSupported(typeof VideoDecoder !== 'undefined');
+    const checkSupport = async () => {
+      const supported = typeof VideoDecoder !== 'undefined';
+      setWebCodecsSupported(supported);
+      
+      if (supported) {
+        // Test basic codec support
+        try {
+          const h264Support = await VideoDecoder.isConfigSupported({
+            codec: 'avc1.42C00D'
+          });
+          console.log('H.264 support:', h264Support.supported);
+        } catch (e) {
+          console.warn('Error checking codec support:', e);
+        }
+      }
+    };
+    
+    checkSupport();
   }, []);
 
-  // Initialize WebAssembly module once
- useEffect(() => {
-  const initializeModule = async () => {
-    if (moduleRef.current) return;
+  // Initialize WebAssembly module
+  useEffect(() => {
+    const initializeModule = async () => {
+      if (moduleRef.current) return;
 
-    try {
-      const moduleConfig = {
-        canvas: null,
-        print: (text: string) => {
-          console.log(text);
-          addLogEntry(text);
-        },
-        printErr: (text: string) => {
-          console.error(text);
-          addLogEntry(`ERROR: ${text}`);
-        },
-        setStatus: (text: string) => {
-          setStatus(text);
-        },
-        // Handle custom messages from pthreads
+      try {
+        setError(null);
         
-        onRuntimeInitialized: () => {
-          // Make Module available globally
-          if (typeof window !== 'undefined') {
-            (window as any).Module = moduleRef.current;
-          }
-          setIsLoading(false);
-          setStatus('Ready - Loading device list...');
-        },
-       FrameReact: (rssi: number, snr: number) => {
-          setStats(prevStats => ({
-            ...prevStats,
-            rssi: -1 * rssi,
-            snr: snr,
-            packetCount: prevStats.packetCount + 1,
-          }));
-        },
+        const moduleConfig = {
+          canvas: null,
+          print: addLogEntry,
+          printErr: (text: string) => {
+            console.error(text);
+            addLogEntry(`ERROR: ${text}`);
+          },
+          setStatus,
+          onRuntimeInitialized: () => {
+            if (typeof window !== 'undefined') {
+              (window as any).Module = moduleRef.current;
+            }
+            setIsLoading(false);
+            setStatus('Ready - Loading device list...');
+          },
+          FrameReact: handleIEEFrame,
+          displayFrameReact: displayFrame
+        };
 
-        displayFrameReact: (frameData: Uint8Array, codec_type: number, is_key_frame: boolean) => {
-          displayFrame(frameData, codec_type ,is_key_frame)
+        const wasmModule = await MainModuleFactory(moduleConfig);
+        moduleRef.current = wasmModule;
+        
+        if (typeof window !== 'undefined') {
+          (window as any).Module = wasmModule;
         }
-      };
-
-      const wasmModule = await MainModuleFactory(moduleConfig);
-      moduleRef.current = wasmModule;
-      
-      // Also set up a custom message handler after module initialization
-      //@ts-ignore
-      if (wasmModule.PThread) {
-              //@ts-ignore
-
-        const originalReceiveObjectTransfer = wasmModule.PThread.receiveObjectTransfer;
-              //@ts-ignore
-
-       
+        
+      } catch (error) {
+        console.error('Failed to load WebAssembly module:', error);
+        setError(`Failed to load WebAssembly module: ${error}`);
+        setStatus(`Failed to load WebAssembly module: ${error}`);
+        setIsLoading(false);
       }
-      
-      if (typeof window !== 'undefined') {
-        (window as any).Module = wasmModule;
+    };
+
+    initializeModule();
+    
+    // Cleanup on unmount
+    return () => {
+      if (videoSystemRef.current) {
+        videoSystemRef.current.destroy();
+        videoSystemRef.current = null;
       }
-      
-    } catch (error) {
-      console.error('Failed to load WebAssembly module:', error);
-      setStatus(`Failed to load WebAssembly module: ${error}`);
-      setIsLoading(false);
-    }
-  };
-
-  initializeModule();
-}, [maxLogEntries]);
-
+    };
+  }, [addLogEntry, displayFrame, handleIEEFrame]);
 
   // Update canvas when it changes
   useEffect(() => {
@@ -289,6 +443,7 @@ const displayFrame = useCallback((frameData: Uint8Array, codec_type: number, is_
         }
       } catch (error) {
         console.error('Failed to update canvas:', error);
+        setError(`Failed to update canvas: ${error}`);
       }
     }
   }, [canvas]);
@@ -302,6 +457,7 @@ const displayFrame = useCallback((frameData: Uint8Array, codec_type: number, is_
     setCanvas,
     outputLog,
     stats,
+    error,
   };
 
   return (
@@ -319,8 +475,7 @@ export const useWebAssemblyContext = (): WebAssemblyContextType => {
   return context;
 };
 
-// Convenience hook for components that need to set their canvas
-export const useWebAssemblyCanvas = (canvasRef: RefObject<HTMLCanvasElement | null>) => {
+export const useWebAssemblyCanvas = (canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
   const { setCanvas, ...rest } = useWebAssemblyContext();
 
   useEffect(() => {

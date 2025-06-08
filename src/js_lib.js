@@ -1,7 +1,7 @@
 // src/js_library.js
 
 addToLibrary( {
-     displayFrame: function(data_ptr, data_len, codec_type, is_key_frame) {
+     displayFrame: function(data_ptr, data_len, codec_type, profile, is_key_frame) {
         // Check if we're in a pthread (Web Worker)
         if (typeof importScripts === 'function') {
             // We're in a worker - get frame data and send to main thread
@@ -11,7 +11,7 @@ addToLibrary( {
             self.postMessage({
                 cmd: 'callHandler',
                 handler: 'displayFrameReact',
-                args: [frameDataCopy, codec_type, is_key_frame]
+                args: [frameDataCopy, codec_type, profile, is_key_frame]
             });
         } 
     },
