@@ -17,7 +17,7 @@ const zig_err = @import("zig/utils.zig").zig_err;
 
 // Platform-specific video rendering
 const os = @import("zig/os/os.zig");
-
+const ieee80211_header = @import("zig/wfb_define.zig").ieee80211_header;
 // =============================================================================
 // Types and Constants
 // =============================================================================
@@ -151,14 +151,14 @@ fn process_packet(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
     }
     os.onIEEFrame(@divTrunc(attrib.rssi[0] + attrib.rssi[1], 2), @divTrunc(attrib.snr[0] + attrib.snr[1], 2)); // this is supposed to show after valid packet but here for debug
 
-    zig_print("Processing valid WiFi frame\n", .{});
+    //zig_print("Processing valid WiFi frame\n", .{});
 
     // Thread-safe packet processing
-    mutex.?.lock();
-    defer mutex.?.unlock();
+    //mutex.?.lock();
+    //defer mutex.?.unlock();
 
     // Check if packet belongs to our video channel
-    if (frame.matchesChannelID(WifiConfig.video_channel_id_bytes)) {
-        aggregator.?.process_packet(packet_data, 0, 0, 0);
-    }
+    //if (frame.matchesChannelID(WifiConfig.video_channel_id_bytes)) {
+    //    aggregator.?.process_packet(packet_data[ieee80211_header.len..], 0, 0, 0);
+    //}
 }

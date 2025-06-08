@@ -297,20 +297,12 @@ inline bool isH264(const uint8_t *data)
     auto h264NalType = GET_H264_NAL_UNIT_TYPE(data);
     return h264NalType == 24 || h264NalType == 28;
 }
-
+extern "C" void handle_Rtpdata(uint8_t *data, uint16_t len);
 void WfbReceiver::handleRtp(uint8_t *payload, uint16_t packet_size)
 {
-
-    if (rtlDevice->should_stop)
-    {
-        return;
-    }
-    if (packet_size < 12)
-    {
-        return;
-    }
-
-    auto *header = (RtpHeader *)payload;
+    handle_Rtpdata(payload, packet_size);
+    
+    //std::cout<<"VIDEO RECV" <<std::endl;
 }
 void WfbReceiver::sendRaw(uint8_t *payload, uint16_t packet_size)
 {

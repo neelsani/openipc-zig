@@ -310,12 +310,26 @@ pub const Aggregator = struct {
         }
 
         // Process data packet
+        const W = WfbDefine.WBlockHdr;
+        const hdr: *const W = @alignCast(buf.ptr);
         var decrypted: [WfbDefine.MAX_FEC_PAYLOAD]u8 = undefined;
-        var decrypted_len: c_ulonglong = undefined;
-        const block_hdr: *const WfbDefine.WBlockHdr = @ptrCast(@alignCast(buf.ptr));
+        var decrypted_len: u64 = 0;
 
-        if (c.crypto_aead_chacha20poly1305_decrypt(&decrypted, &decrypted_len, null, buf.ptr + @sizeOf(WfbDefine.WBlockHdr), buf.len - @sizeOf(WfbDefine.WBlockHdr), buf.ptr, @sizeOf(WfbDefine.WBlockHdr), @ptrCast(&block_hdr.data_nonce), &self.session_key) != 0) {
-            zig_print("Unable to decrypt packet #{x}\n", .{std.mem.bigToNative(u64, block_hdr.data_nonce)});
+        const hdrSize = @sizeOf(W);
+        const noncePtr = buf.ptr + @offsetOf(W, "data_nonce");
+
+        if (c.crypto_aead_chacha20poly1305_decrypt(
+            &decrypted[0],
+            &decrypted_len,
+            null,
+            buf.ptr + hdrSize,
+            buf.len - hdrSize,
+            buf.ptr,
+            hdrSize,
+            noncePtr,
+            &self.session_key[0],
+        ) != 0) {
+            zig_print("Unable to decrypt packet #{x}\n", .{std.mem.bigToNative(u64, hdr.data_nonce)});
             self.count_p_dec_err += 1;
             return;
         }
@@ -323,7 +337,7 @@ pub const Aggregator = struct {
         self.count_p_dec_ok += 1;
         std.debug.assert(decrypted_len <= WfbDefine.MAX_FEC_PAYLOAD);
 
-        const data_nonce = std.mem.bigToNative(u64, block_hdr.data_nonce);
+        const data_nonce = std.mem.bigToNative(u64, hdr.data_nonce);
         const block_idx = data_nonce >> 8;
         const fragment_idx: u8 = @truncate(data_nonce & 0xff);
 

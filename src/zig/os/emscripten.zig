@@ -25,6 +25,10 @@ pub fn init(allocator: std.mem.Allocator) void {
     zig_print("wasm specific initialized!\n", .{});
 }
 
+export fn handle_Rtpdata(data: [*]const u8, len: u16) void {
+    handleRtp(depacketizer.?.allocator, data[0..len]);
+}
+
 pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
     zig_print("Processing RTP packet: {} bytes\n", .{data.len});
     rtp_bitrate_calc.addBytes(data.len);
