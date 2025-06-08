@@ -12,7 +12,8 @@ export interface LinkStats {
   snr: number,
   packetCount: number;
   frameCount: number;
-  bitrate: number,
+  rtp_bitrate: number,
+  video_bitrate: number,
   fps: number;
   codec?: string;
   resolution?: string;

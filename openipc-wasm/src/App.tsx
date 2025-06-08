@@ -153,13 +153,14 @@ useEffect(() => {
   
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto p-6">
-        <header className="mb-8">
+      <div className="max-w-6xl mx-auto p-6">
+        <header className="mb-8 text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             OpenIPC Wasm Reciever (RTP/H.264/H.265)
           </h1>
           <StatusBar />
         </header>
+
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           {/* Left Column - Controls and Device Selection */}

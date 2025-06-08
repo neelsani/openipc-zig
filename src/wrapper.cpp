@@ -27,7 +27,7 @@ extern "C"
 			std::cerr << "No devices found!" << std::endl;
 			return;
 		}
-		std::cout << "Hello" << std::endl;
+		//std::cout << "Hello" << std::endl;
 		const DeviceId &selectedDevice = devices[i];
 
 		std::string keyPath = "gs.key";

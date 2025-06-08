@@ -5,6 +5,7 @@ const zig_err = @import("../utils.zig").zig_err;
 const c = @cImport({
     @cInclude("pthread.h");
 });
+const BitrateCalculator = @import("../rtp/bitrate.zig").BitrateCalculator;
 const rtp = @import("../rtp/rtp.zig");
 
 var depacketizer: ?rtp.RtpDepacketizer = null;
@@ -12,6 +13,10 @@ var depacketizer: ?rtp.RtpDepacketizer = null;
 extern fn displayFrame(data_ptr: [*]const u8, data_len: usize, codec_type: u32, profile: u32, is_key_frame: bool) void;
 
 pub extern fn onIEEFrame(rssi: u8, snr: i8) void;
+extern fn onBitrate(rtp_bitrate: f64, video_bitrate: f64) void;
+
+var rtp_bitrate_calc = BitrateCalculator{};
+var video_bitrate_calc = BitrateCalculator{};
 
 pub fn init(allocator: std.mem.Allocator) void {
     depacketizer = rtp.RtpDepacketizer.init(allocator);
@@ -22,7 +27,8 @@ pub fn init(allocator: std.mem.Allocator) void {
 
 pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
     zig_print("Processing RTP packet: {} bytes\n", .{data.len});
-
+    rtp_bitrate_calc.addBytes(data.len);
+    onBitrate(rtp_bitrate_calc.getBitrateMbps(), video_bitrate_calc.getBitrateMbps());
     if (depacketizer) |*depak| {
         var result = depak.processRtpPacket(data) catch |err| {
             zig_err("Failed to parse rtp frame {any}!!\n", .{err});
@@ -31,6 +37,8 @@ pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
 
         if (result) |*frame| {
             defer frame.deinit(allocator);
+            video_bitrate_calc.addBytes(frame.data.len);
+            onBitrate(rtp_bitrate_calc.getBitrateMbps(), video_bitrate_calc.getBitrateMbps());
             displayFrame(frame.data.ptr, @intCast(frame.data.len), @intFromEnum(frame.codec), @intFromEnum(std.meta.activeTag(frame.profile)), frame.is_keyframe);
         }
     } else {

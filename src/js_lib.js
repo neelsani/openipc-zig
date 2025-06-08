@@ -21,20 +21,23 @@ addToLibrary( {
         // We're in a worker - send message to main thread
         self.postMessage({
             cmd: 'callHandler',
-            handler: 'FrameReact',
+            handler: 'onIEEFrameReact',
             args: [rssi, snr]
         });
-    } else {
-        // We're on main thread - direct call
-        console.log(Module);
-        if (!Module.FrameReact) {
-            return;
-        }
-        Module.FrameReact(rssi, snr);
-    }
+    } 
     
-},
- js_getKeyBuffer: function(lengthPtr) {
+  },
+  onBitrate: function(rtp_bitrate, video_bitrate) {
+    if (typeof importScripts === 'function') {
+        // We're in a worker - send message to main thread
+        self.postMessage({
+            cmd: 'callHandler',
+            handler: 'onBitrateReact',
+            args: [rtp_bitrate, video_bitrate]
+        });
+    } 
+  },
+  js_getKeyBuffer: function(lengthPtr) {
     const key = localStorage.getItem('gs.key');
     if (!key) {
       setValue(lengthPtr, 0, 'i32');

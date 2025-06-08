@@ -7418,22 +7418,26 @@ function _js_getKeyBuffer(lengthPtr) {
   }
 }
 
+function _onBitrate(rtp_bitrate, video_bitrate) {
+  if (typeof importScripts === "function") {
+    // We're in a worker - send message to main thread
+    self.postMessage({
+      cmd: "callHandler",
+      handler: "onBitrateReact",
+      args: [ rtp_bitrate, video_bitrate ]
+    });
+  }
+}
+
 function _onIEEFrame(rssi, snr) {
   // Check if we're in a pthread (Web Worker)
   if (typeof importScripts === "function") {
     // We're in a worker - send message to main thread
     self.postMessage({
       cmd: "callHandler",
-      handler: "FrameReact",
+      handler: "onIEEFrameReact",
       args: [ rssi, snr ]
     });
-  } else {
-    // We're on main thread - direct call
-    console.log(Module);
-    if (!Module.FrameReact) {
-      return;
-    }
-    Module.FrameReact(rssi, snr);
   }
 }
 
@@ -7757,6 +7761,7 @@ function assignWasmImports() {
     /** @export */ js_freeKeyBuffer: _js_freeKeyBuffer,
     /** @export */ js_getKeyBuffer: _js_getKeyBuffer,
     /** @export */ memory: wasmMemory,
+    /** @export */ onBitrate: _onBitrate,
     /** @export */ onIEEFrame: _onIEEFrame,
     /** @export */ usbi_em_copy_from_dataview,
     /** @export */ usbi_em_device_safe_open_close,

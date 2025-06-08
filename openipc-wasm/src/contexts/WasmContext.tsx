@@ -307,7 +307,8 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
   const [stats, setStats] = useState<LinkStats>({
     rssi: 0,
     snr: 0,
-    bitrate: 0,
+    rtp_bitrate: 0,
+    video_bitrate: 0,
     packetCount: 0,
     frameCount: 0,
     fps: 0,
@@ -358,6 +359,14 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
       packetCount: prevStats.packetCount + 1,
     }));
   }, []);
+  const onBitrate = useCallback((rtp_bitrate: number, video_bitrate: number) => {
+    setStats(prevStats => ({
+      ...prevStats,
+      rtp_bitrate: rtp_bitrate,
+      video_bitrate: video_bitrate,
+    
+    }));
+  }, []);
 
   // Initialize WebCodecs support check
   useEffect(() => {
@@ -404,8 +413,9 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
             setIsLoading(false);
             setStatus('Ready - Loading device list...');
           },
-          FrameReact: handleIEEFrame,
-          displayFrameReact: displayFrame
+          onIEEFrameReact: handleIEEFrame,
+          displayFrameReact: displayFrame,
+          onBitrateReact: onBitrate,
         };
 
         const wasmModule = await MainModuleFactory(moduleConfig);
