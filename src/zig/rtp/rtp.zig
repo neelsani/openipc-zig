@@ -244,28 +244,26 @@ pub const RtpDepacketizer = struct {
         return .{ .profile = profile, .level = general_level_idc };
     }
 
-    // Helper function for exp-golomb parsing
-    fn parseExpGolombCode(data: []const u8, offset: *usize) u32 {
-        // Simplified implementation - real code should handle bit reading
-        if (offset.* >= data.len) return 0;
-        const byte = data[offset.*];
-        offset.* += 1;
-        return byte; // This is just a placeholder
-    }
-
     fn generateCodecString(self: *RtpDepacketizer, codec: @TypeOf(@as(DepacketizedFrame, undefined).codec)) []const u8 {
         return switch (codec) {
             .h264 => switch (self.h264_profile) {
                 .baseline => "avc1.42E01E",
                 .main => "avc1.4D401E",
+                .extended => "avc1.58401E",
                 .high => "avc1.64001E",
-                else => "avc1.42E01E", // Default to baseline
+                .high10 => "avc1.6E001E",
+                .high422 => "avc1.7A001E",
+                .high444 => "avc1.F4001E",
+                .unknown => "avc1.42E01E", // Default to baseline
             },
             .h265 => switch (self.h265_profile) {
                 .main => "hev1.1.6.L93.B0",
                 .main10 => "hev1.2.4.L93.B0",
+                .main_still_picture => "hev1.3.6.L93.B0",
                 .range_extensions => "hev1.4.4.L93.B0",
-                else => "hev1.1.6.L93.B0", // Default to main
+                .high_throughput => "hev1.5.4.L93.B0",
+                .screen_content_coding => "hev1.9.4.L93.B0",
+                .unknown => "hev1.1.6.L93.B0", // Default to main
             },
         };
     }
