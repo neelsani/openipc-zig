@@ -183,7 +183,7 @@ bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWi
 
         return false;
     }
-
+    init_zig();
     usbThread = std::make_shared<std::thread>([=, this]()
                                               {
                                                   WiFiDriver wifi_driver{logger};
@@ -192,7 +192,7 @@ bool WfbReceiver::Start(const DeviceId &deviceId, uint8_t channel, int channelWi
 
                                                       rtlDevice = wifi_driver.CreateRtlDevice(devHandle);
                                                       
-                                                        init_zig();
+                                                        
                                                         rtlDevice->Init(
                                                           [](const Packet &p)
                                                           {

@@ -32,6 +32,45 @@ addToLibrary( {
         }
         Module.FrameReact(rssi, snr);
     }
-}
-
+    
+},
+ js_getKeyBuffer: function(lengthPtr) {
+    const key = localStorage.getItem('gs.key');
+    if (!key) {
+      setValue(lengthPtr, 0, 'i32');
+      return 0;
+    }
+    
+    try {
+      const binaryString = atob(key);
+      const length = binaryString.length;
+      const buffer = _malloc(length);
+      
+      if (!buffer) {
+        setValue(lengthPtr, 0, 'i32');
+        return 0;
+      }
+      
+      const view = new Uint8Array(Module.HEAPU8.buffer, buffer, length);
+      for (let i = 0; i < length; i++) {
+        view[i] = binaryString.charCodeAt(i);
+      }
+      
+      setValue(lengthPtr, length, 'i32');
+      return buffer;
+    } catch (e) {
+      console.error('Failed to decode key:', e);
+      setValue(lengthPtr, 0, 'i32');
+      return 0;
+    }
+  },
+  
+  js_freeKeyBuffer: function(buffer) {
+    if (buffer) {
+      _free(buffer);
+    }
+  },
+  
+ 
+  
 });

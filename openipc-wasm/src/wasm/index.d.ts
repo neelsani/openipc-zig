@@ -47,6 +47,7 @@ declare namespace RuntimeExports {
         function allocateUnusedWorker(): void;
         function getNewWorker(): any;
     }
+    let HEAPU8: any;
 }
 interface WasmModule {
   _main(_0: number, _1: number): number;

@@ -17,3 +17,4 @@ pub fn onIEEFrame(rssi: i32, snr: i32) void {
     _ = rssi;
     _ = snr;
 }
+pub const getGsKey = @import("posix.zig").getGsKey;

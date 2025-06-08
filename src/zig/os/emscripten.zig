@@ -57,6 +57,26 @@ const pthread_mutex_lock = c.pthread_mutex_lock;
 const pthread_mutex_unlock = c.pthread_mutex_unlock;
 const pthread_mutex_trylock = c.pthread_mutex_trylock;
 
+extern fn js_getKeyBuffer(length_ptr: *c_int) ?[*]u8;
+extern fn js_freeKeyBuffer(buffer: ?[*]u8) void;
+
+pub fn getGsKey(allocator: std.mem.Allocator) ![]u8 {
+    var length: c_int = 0;
+    const buffer_ptr = js_getKeyBuffer(&length);
+
+    if (buffer_ptr == null or length == 0) {
+        return error.NoKeyFound; // Return error instead of null
+    }
+
+    const buffer = buffer_ptr.?[0..@intCast(length)];
+    const result = try allocator.dupe(u8, buffer);
+    zig_print("{s}\n", .{result});
+    // Free the JavaScript-allocated buffer
+    js_freeKeyBuffer(buffer_ptr);
+
+    return result;
+}
+
 fn WebWorker(comptime SharedDataType: type) type {
     return struct {
         allocator: std.mem.Allocator,

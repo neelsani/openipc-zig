@@ -54,3 +54,16 @@ pub fn handleRtp(allocator: std.mem.Allocator, data: []const u8) void {
 
     zig_print("Sent RTP packet: {} bytes\n", .{sent});
 }
+pub fn getGsKey(allocator: std.mem.Allocator) ![]u8 {
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    if (args.len < 2) {
+        @panic("No argument provided");
+    }
+
+    const first_arg = args[1];
+    const result = try allocator.alloc(u8, first_arg.len);
+    @memcpy(result, first_arg);
+    return result;
+}

@@ -143,7 +143,7 @@ pub fn build(b: *std.Build) !void {
                 //"-sMAXIMUM_MEMORY=2GB",
                 "-sSTACK_SIZE=16MB",
                 //"-sTOTAL_STACK=16MB",
-                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','lengthBytesUTF8','stringToUTF8', 'PThread']",
+                "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','lengthBytesUTF8','stringToUTF8', 'PThread', 'HEAPU8']",
 
                 "-sENVIRONMENT=web,worker",
                 "-sMODULARIZE=1",

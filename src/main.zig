@@ -80,7 +80,10 @@ export fn init_zig() void {
         },
     };
 
-    aggregator = Aggregator.init(allocator, "gs.key", 0, WifiConfig.video_channel_id, &os.handleRtp) catch |err| {
+    aggregator = Aggregator.init(allocator, os.getGsKey(allocator) catch |err| {
+        zig_err("Failed to initialize aggregator: {any}\n", .{err});
+        return;
+    }, 0, WifiConfig.video_channel_id, &os.handleRtp) catch |err| {
         zig_err("Failed to initialize aggregator: {any}\n", .{err});
         return;
     };
