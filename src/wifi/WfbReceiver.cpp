@@ -240,7 +240,7 @@ extern "C" void handle_data(const uint8_t *data, size_t len, const rx_pkt_attrib
 
 void WfbReceiver::handle80211Frame(const Packet &packet)
 {
-    handle_data(packet.Data.data(), packet.Data.size(), &packet.RxAtrib); // give zig data then transfer control to c++ for backup
+    // handle_data(packet.Data.data(), packet.Data.size(), &packet.RxAtrib); // give zig data then transfer control to c++ for backup
     RxFrame frame(packet.Data);
     if (!frame.IsValidWfbFrame())
     {
@@ -268,8 +268,9 @@ void WfbReceiver::handle80211Frame(const Packet &packet)
         video_channel_id_f,
         [](uint8_t *payload, uint16_t packet_size)
         { Instance().handleRtp(payload, packet_size); });
-
+    handle_data(packet.Data.data(), packet.Data.size(), &packet.RxAtrib);
     std::lock_guard lock(agg_mutex);
+
     if (frame.MatchesChannelID(video_channel_id_be8))
     {
         video_aggregator->process_packet(packet.Data.data() + sizeof(ieee80211_header),
@@ -301,8 +302,8 @@ extern "C" void handle_Rtpdata(uint8_t *data, uint16_t len);
 void WfbReceiver::handleRtp(uint8_t *payload, uint16_t packet_size)
 {
     handle_Rtpdata(payload, packet_size);
-    
-    //std::cout<<"VIDEO RECV" <<std::endl;
+
+    // std::cout<<"VIDEO RECV" <<std::endl;
 }
 void WfbReceiver::sendRaw(uint8_t *payload, uint16_t packet_size)
 {

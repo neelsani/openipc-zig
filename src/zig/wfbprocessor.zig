@@ -311,7 +311,7 @@ pub const Aggregator = struct {
 
         // Process data packet
         const W = WfbDefine.WBlockHdr;
-        const hdr: *const W = @alignCast(buf.ptr);
+        const hdr: *const W = @alignCast(@ptrCast(buf.ptr));
         var decrypted: [WfbDefine.MAX_FEC_PAYLOAD]u8 = undefined;
         var decrypted_len: u64 = 0;
 

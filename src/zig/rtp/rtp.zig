@@ -84,28 +84,52 @@ const DepacketizedFrame = struct {
     }
 };
 
+// Fixed-size buffer for fragmentation
+const MAX_FRAGMENT_SIZE = 64 * 1024;
+const MAX_FRAME_SIZE = 1024 * 1024;
+const MAX_TEMP_SIZE = 64 * 1024;
+const MAX_PARAM_SIZE = 1024;
+
 const FragmentationState = struct {
-    buffer: std.ArrayList(u8),
+    buffer: [MAX_FRAGMENT_SIZE]u8,
+    buffer_len: usize,
     timestamp: u32,
     is_first: bool,
     nal_type: u8,
 
-    pub fn init(allocator: Allocator) FragmentationState {
+    pub fn init() FragmentationState {
         return FragmentationState{
-            .buffer = std.ArrayList(u8).initCapacity(allocator, 64 * 1024) catch std.ArrayList(u8).init(allocator),
+            .buffer = undefined,
+            .buffer_len = 0,
             .timestamp = 0,
             .is_first = false,
             .nal_type = 0,
         };
     }
 
-    pub fn deinit(self: *FragmentationState) void {
-        self.buffer.deinit();
+    pub fn reset(self: *FragmentationState) void {
+        self.buffer_len = 0;
+        self.is_first = false;
     }
 
-    pub fn reset(self: *FragmentationState) void {
-        self.buffer.clearRetainingCapacity();
-        self.is_first = false;
+    pub fn append(self: *FragmentationState, data: []const u8) !void {
+        if (self.buffer_len + data.len > MAX_FRAGMENT_SIZE) {
+            return error.BufferOverflow;
+        }
+        @memcpy(self.buffer[self.buffer_len .. self.buffer_len + data.len], data);
+        self.buffer_len += data.len;
+    }
+
+    pub fn appendByte(self: *FragmentationState, byte: u8) !void {
+        if (self.buffer_len >= MAX_FRAGMENT_SIZE) {
+            return error.BufferOverflow;
+        }
+        self.buffer[self.buffer_len] = byte;
+        self.buffer_len += 1;
+    }
+
+    pub fn getSlice(self: *const FragmentationState) []const u8 {
+        return self.buffer[0..self.buffer_len];
     }
 };
 
@@ -134,11 +158,18 @@ pub const RtpDepacketizer = struct {
     allocator: Allocator,
     h264_frag_state: FragmentationState,
     h265_frag_state: FragmentationState,
-    sps_h264: ?[]u8,
-    pps_h264: ?[]u8,
-    vps_h265: ?[]u8,
-    sps_h265: ?[]u8,
-    pps_h265: ?[]u8,
+
+    // Fixed-size parameter set buffers
+    sps_h264: [MAX_PARAM_SIZE]u8,
+    sps_h264_len: usize,
+    pps_h264: [MAX_PARAM_SIZE]u8,
+    pps_h264_len: usize,
+    vps_h265: [MAX_PARAM_SIZE]u8,
+    vps_h265_len: usize,
+    sps_h265: [MAX_PARAM_SIZE]u8,
+    sps_h265_len: usize,
+    pps_h265: [MAX_PARAM_SIZE]u8,
+    pps_h265_len: usize,
 
     // Profile detection cache
     h264_profile: H264Profile = .unknown,
@@ -148,37 +179,71 @@ pub const RtpDepacketizer = struct {
     h264_profile_detected: bool = false,
     h265_profile_detected: bool = false,
 
-    // Pre-allocated buffers for performance
-    frame_buffer: std.ArrayList(u8),
-    temp_buffer: std.ArrayList(u8),
+    // Fixed-size buffers for performance
+    frame_buffer: [MAX_FRAME_SIZE]u8,
+    frame_buffer_len: usize,
+    temp_buffer: [MAX_TEMP_SIZE]u8,
+    temp_buffer_len: usize,
 
     const ANNEX_B_START_CODE = [_]u8{ 0x00, 0x00, 0x00, 0x01 };
 
     pub fn init(allocator: Allocator) RtpDepacketizer {
         return RtpDepacketizer{
             .allocator = allocator,
-            .h264_frag_state = FragmentationState.init(allocator),
-            .h265_frag_state = FragmentationState.init(allocator),
-            .sps_h264 = null,
-            .pps_h264 = null,
-            .vps_h265 = null,
-            .sps_h265 = null,
-            .pps_h265 = null,
-            .frame_buffer = std.ArrayList(u8).initCapacity(allocator, 1024 * 1024) catch std.ArrayList(u8).init(allocator),
-            .temp_buffer = std.ArrayList(u8).initCapacity(allocator, 64 * 1024) catch std.ArrayList(u8).init(allocator),
+            .h264_frag_state = FragmentationState.init(),
+            .h265_frag_state = FragmentationState.init(),
+            .sps_h264 = undefined,
+            .sps_h264_len = 0,
+            .pps_h264 = undefined,
+            .pps_h264_len = 0,
+            .vps_h265 = undefined,
+            .vps_h265_len = 0,
+            .sps_h265 = undefined,
+            .sps_h265_len = 0,
+            .pps_h265 = undefined,
+            .pps_h265_len = 0,
+            .frame_buffer = undefined,
+            .frame_buffer_len = 0,
+            .temp_buffer = undefined,
+            .temp_buffer_len = 0,
         };
     }
 
     pub fn deinit(self: *RtpDepacketizer) void {
-        self.h264_frag_state.deinit();
-        self.h265_frag_state.deinit();
-        self.frame_buffer.deinit();
-        self.temp_buffer.deinit();
-        if (self.sps_h264) |sps| self.allocator.free(sps);
-        if (self.pps_h264) |pps| self.allocator.free(pps);
-        if (self.vps_h265) |vps| self.allocator.free(vps);
-        if (self.sps_h265) |sps| self.allocator.free(sps);
-        if (self.pps_h265) |pps| self.allocator.free(pps);
+        _ = self;
+        // No cleanup needed for stack buffers
+    }
+
+    fn resetFrameBuffer(self: *RtpDepacketizer) void {
+        self.frame_buffer_len = 0;
+    }
+
+    fn resetTempBuffer(self: *RtpDepacketizer) void {
+        self.temp_buffer_len = 0;
+    }
+
+    fn appendToFrameBuffer(self: *RtpDepacketizer, data: []const u8) !void {
+        if (self.frame_buffer_len + data.len > MAX_FRAME_SIZE) {
+            return error.BufferOverflow;
+        }
+        @memcpy(self.frame_buffer[self.frame_buffer_len .. self.frame_buffer_len + data.len], data);
+        self.frame_buffer_len += data.len;
+    }
+
+    fn appendToTempBuffer(self: *RtpDepacketizer, data: []const u8) !void {
+        if (self.temp_buffer_len + data.len > MAX_TEMP_SIZE) {
+            return error.BufferOverflow;
+        }
+        @memcpy(self.temp_buffer[self.temp_buffer_len .. self.temp_buffer_len + data.len], data);
+        self.temp_buffer_len += data.len;
+    }
+
+    fn getFrameBufferSlice(self: *const RtpDepacketizer) []const u8 {
+        return self.frame_buffer[0..self.frame_buffer_len];
+    }
+
+    fn getTempBufferSlice(self: *const RtpDepacketizer) []const u8 {
+        return self.temp_buffer[0..self.temp_buffer_len];
     }
 
     fn detectH264Profile(sps_data: []const u8) struct { profile: H264Profile, level: u8 } {
@@ -251,47 +316,47 @@ pub const RtpDepacketizer = struct {
     }
 
     fn storeH264Sps(self: *RtpDepacketizer, sps_data: []const u8) !void {
-        if (self.sps_h264) |old_sps| self.allocator.free(old_sps);
-        self.sps_h264 = try self.allocator.dupe(u8, sps_data);
+        if (sps_data.len > MAX_PARAM_SIZE) return error.BufferOverflow;
+        @memcpy(self.sps_h264[0..sps_data.len], sps_data);
+        self.sps_h264_len = sps_data.len;
 
         if (!self.h264_profile_detected) {
             const profile_info = detectH264Profile(sps_data);
             self.h264_profile = profile_info.profile;
             self.h264_level = profile_info.level;
             self.h264_profile_detected = true;
-
-            // zig_print("Stored H.264 SPS: {} bytes, Profile: {s}, Level: {}\n", .{ sps_data.len, @tagName(self.h264_profile), self.h264_level });
         }
     }
 
     fn storeH264Pps(self: *RtpDepacketizer, pps_data: []const u8) !void {
-        if (self.pps_h264) |old_pps| self.allocator.free(old_pps);
-        self.pps_h264 = try self.allocator.dupe(u8, pps_data);
-        // zig_print("Stored H.264 PPS: {} bytes\n", .{pps_data.len});
+        if (pps_data.len > MAX_PARAM_SIZE) return error.BufferOverflow;
+        @memcpy(self.pps_h264[0..pps_data.len], pps_data);
+        self.pps_h264_len = pps_data.len;
     }
 
     fn storeH265Vps(self: *RtpDepacketizer, vps_data: []const u8) !void {
-        if (self.vps_h265) |old_vps| self.allocator.free(old_vps);
-        self.vps_h265 = try self.allocator.dupe(u8, vps_data);
+        if (vps_data.len > MAX_PARAM_SIZE) return error.BufferOverflow;
+        @memcpy(self.vps_h265[0..vps_data.len], vps_data);
+        self.vps_h265_len = vps_data.len;
     }
 
     fn storeH265Sps(self: *RtpDepacketizer, sps_data: []const u8) !void {
-        if (self.sps_h265) |old_sps| self.allocator.free(old_sps);
-        self.sps_h265 = try self.allocator.dupe(u8, sps_data);
+        if (sps_data.len > MAX_PARAM_SIZE) return error.BufferOverflow;
+        @memcpy(self.sps_h265[0..sps_data.len], sps_data);
+        self.sps_h265_len = sps_data.len;
 
         if (!self.h265_profile_detected) {
             const profile_info = detectH265Profile(sps_data);
             self.h265_profile = profile_info.profile;
             self.h265_level = profile_info.level;
             self.h265_profile_detected = true;
-
-            // zig_print("Stored H.265 SPS: {} bytes, Profile: {s}, Level: {}\n", .{ sps_data.len, @tagName(self.h265_profile), self.h265_level });
         }
     }
 
     fn storeH265Pps(self: *RtpDepacketizer, pps_data: []const u8) !void {
-        if (self.pps_h265) |old_pps| self.allocator.free(old_pps);
-        self.pps_h265 = try self.allocator.dupe(u8, pps_data);
+        if (pps_data.len > MAX_PARAM_SIZE) return error.BufferOverflow;
+        @memcpy(self.pps_h265[0..pps_data.len], pps_data);
+        self.pps_h265_len = pps_data.len;
     }
 
     fn detectCodecFromPayload(payload: []const u8) ?enum { h264, h265 } {
@@ -422,13 +487,13 @@ pub const RtpDepacketizer = struct {
             self.h264_frag_state.nal_type = nal_type;
 
             const reconstructed_nal = (fu_indicator & 0xE0) | nal_type;
-            try self.h264_frag_state.buffer.append(reconstructed_nal);
+            try self.h264_frag_state.appendByte(reconstructed_nal);
         }
 
-        try self.h264_frag_state.buffer.appendSlice(payload[2..]);
+        try self.h264_frag_state.append(payload[2..]);
 
         if (end_bit) {
-            return try self.createFrame(self.h264_frag_state.buffer.items, self.h264_frag_state.timestamp, nal_type == 5, .h264);
+            return try self.createFrame(self.h264_frag_state.getSlice(), self.h264_frag_state.timestamp, nal_type == 5, .h264);
         }
 
         return null;
@@ -448,15 +513,15 @@ pub const RtpDepacketizer = struct {
             self.h265_frag_state.is_first = true;
             self.h265_frag_state.nal_type = nal_type;
 
-            try self.h265_frag_state.buffer.append((nal_type << 1) | (payload[0] & 0x01));
-            try self.h265_frag_state.buffer.append(payload[1]);
+            try self.h265_frag_state.appendByte((nal_type << 1) | (payload[0] & 0x01));
+            try self.h265_frag_state.appendByte(payload[1]);
         }
 
-        try self.h265_frag_state.buffer.appendSlice(payload[3..]);
+        try self.h265_frag_state.append(payload[3..]);
 
         if (end_bit) {
             const is_keyframe = nal_type >= 16 and nal_type <= 23;
-            return try self.createFrame(self.h265_frag_state.buffer.items, self.h265_frag_state.timestamp, is_keyframe, .h265);
+            return try self.createFrame(self.h265_frag_state.getSlice(), self.h265_frag_state.timestamp, is_keyframe, .h265);
         }
 
         return null;
@@ -475,7 +540,7 @@ pub const RtpDepacketizer = struct {
     }
 
     fn processH264StapA(self: *RtpDepacketizer, payload: []const u8, header: RtpHeader) !?DepacketizedFrame {
-        self.temp_buffer.clearRetainingCapacity();
+        self.resetTempBuffer();
 
         var offset: usize = 1;
         var is_keyframe = false;
@@ -493,17 +558,17 @@ pub const RtpDepacketizer = struct {
 
             if (nal_type == 5) is_keyframe = true;
 
-            try self.temp_buffer.appendSlice(&ANNEX_B_START_CODE);
-            try self.temp_buffer.appendSlice(nalu);
+            try self.appendToTempBuffer(&ANNEX_B_START_CODE);
+            try self.appendToTempBuffer(nalu);
 
             offset += nalu_size;
         }
 
-        return try self.createFrameFromBuffer(self.temp_buffer.items, header.timestamp, is_keyframe, .h264);
+        return try self.createFrameFromBuffer(self.getTempBufferSlice(), header.timestamp, is_keyframe, .h264);
     }
 
     fn processH265AggregationPacket(self: *RtpDepacketizer, payload: []const u8, header: RtpHeader) !?DepacketizedFrame {
-        self.temp_buffer.clearRetainingCapacity();
+        self.resetTempBuffer();
 
         var offset: usize = 2;
         var is_keyframe = false;
@@ -521,49 +586,49 @@ pub const RtpDepacketizer = struct {
 
             if (nal_type >= 16 and nal_type <= 23) is_keyframe = true;
 
-            try self.temp_buffer.appendSlice(&ANNEX_B_START_CODE);
-            try self.temp_buffer.appendSlice(nalu);
+            try self.appendToTempBuffer(&ANNEX_B_START_CODE);
+            try self.appendToTempBuffer(nalu);
 
             offset += nalu_size;
         }
 
-        return try self.createFrameFromBuffer(self.temp_buffer.items, header.timestamp, is_keyframe, .h265);
+        return try self.createFrameFromBuffer(self.getTempBufferSlice(), header.timestamp, is_keyframe, .h265);
     }
 
     fn createFrame(self: *RtpDepacketizer, data: []const u8, timestamp: u32, is_keyframe: bool, codec: @TypeOf(@as(DepacketizedFrame, undefined).codec)) !DepacketizedFrame {
-        self.frame_buffer.clearRetainingCapacity();
+        self.resetFrameBuffer();
 
         if (is_keyframe) {
             switch (codec) {
                 .h264 => {
-                    if (self.sps_h264) |sps| {
-                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
-                        try self.frame_buffer.appendSlice(sps);
+                    if (self.sps_h264_len > 0) {
+                        try self.appendToFrameBuffer(&ANNEX_B_START_CODE);
+                        try self.appendToFrameBuffer(self.sps_h264[0..self.sps_h264_len]);
                     }
-                    if (self.pps_h264) |pps| {
-                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
-                        try self.frame_buffer.appendSlice(pps);
+                    if (self.pps_h264_len > 0) {
+                        try self.appendToFrameBuffer(&ANNEX_B_START_CODE);
+                        try self.appendToFrameBuffer(self.pps_h264[0..self.pps_h264_len]);
                     }
                 },
                 .h265 => {
-                    if (self.vps_h265) |vps| {
-                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
-                        try self.frame_buffer.appendSlice(vps);
+                    if (self.vps_h265_len > 0) {
+                        try self.appendToFrameBuffer(&ANNEX_B_START_CODE);
+                        try self.appendToFrameBuffer(self.vps_h265[0..self.vps_h265_len]);
                     }
-                    if (self.sps_h265) |sps| {
-                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
-                        try self.frame_buffer.appendSlice(sps);
+                    if (self.sps_h265_len > 0) {
+                        try self.appendToFrameBuffer(&ANNEX_B_START_CODE);
+                        try self.appendToFrameBuffer(self.sps_h265[0..self.sps_h265_len]);
                     }
-                    if (self.pps_h265) |pps| {
-                        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
-                        try self.frame_buffer.appendSlice(pps);
+                    if (self.pps_h265_len > 0) {
+                        try self.appendToFrameBuffer(&ANNEX_B_START_CODE);
+                        try self.appendToFrameBuffer(self.pps_h265[0..self.pps_h265_len]);
                     }
                 },
             }
         }
 
-        try self.frame_buffer.appendSlice(&ANNEX_B_START_CODE);
-        try self.frame_buffer.appendSlice(data);
+        try self.appendToFrameBuffer(&ANNEX_B_START_CODE);
+        try self.appendToFrameBuffer(data);
 
         const profile_info = switch (codec) {
             .h264 => @as(@TypeOf(@as(DepacketizedFrame, undefined).profile), .{ .h264 = self.h264_profile }),
@@ -576,7 +641,7 @@ pub const RtpDepacketizer = struct {
         };
 
         return DepacketizedFrame{
-            .data = try self.frame_buffer.toOwnedSlice(),
+            .data = try self.allocator.dupe(u8, self.getFrameBufferSlice()),
             .timestamp = timestamp,
             .is_keyframe = is_keyframe,
             .codec = codec,

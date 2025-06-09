@@ -1,7 +1,7 @@
 // src/js_library.js
 
 addToLibrary( {
-     displayFrame: function(data_ptr, data_len, codec_type, profile, is_key_frame) {
+     displayFrame: async function(data_ptr, data_len, codec_type, profile, is_key_frame) {
         // Check if we're in a pthread (Web Worker)
         if (typeof importScripts === 'function') {
             // We're in a worker - get frame data and send to main thread
@@ -15,7 +15,7 @@ addToLibrary( {
             });
         } 
     },
-    onIEEFrame: function(rssi, snr) {
+    onIEEFrame: async function(rssi, snr) {
     // Check if we're in a pthread (Web Worker)
     if (typeof importScripts === 'function') {
         // We're in a worker - send message to main thread
@@ -27,7 +27,7 @@ addToLibrary( {
     } 
     
   },
-  onBitrate: function(rtp_bitrate, video_bitrate) {
+  onBitrate: async  function(rtp_bitrate, video_bitrate) {
     if (typeof importScripts === 'function') {
         // We're in a worker - send message to main thread
         self.postMessage({

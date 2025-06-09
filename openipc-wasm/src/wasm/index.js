@@ -7132,7 +7132,7 @@ function _clock_time_get(clk_id, ignored_precision, ptime) {
   return 0;
 }
 
-function _displayFrame(data_ptr, data_len, codec_type, profile, is_key_frame) {
+async function _displayFrame(data_ptr, data_len, codec_type, profile, is_key_frame) {
   // Check if we're in a pthread (Web Worker)
   if (typeof importScripts === "function") {
     // We're in a worker - get frame data and send to main thread
@@ -7146,6 +7146,8 @@ function _displayFrame(data_ptr, data_len, codec_type, profile, is_key_frame) {
     });
   }
 }
+
+_displayFrame.isAsync = true;
 
 var _emscripten_check_blocking_allowed = () => {
   if (ENVIRONMENT_IS_WORKER) return;
@@ -7418,7 +7420,7 @@ function _js_getKeyBuffer(lengthPtr) {
   }
 }
 
-function _onBitrate(rtp_bitrate, video_bitrate) {
+async function _onBitrate(rtp_bitrate, video_bitrate) {
   if (typeof importScripts === "function") {
     // We're in a worker - send message to main thread
     self.postMessage({
@@ -7429,7 +7431,9 @@ function _onBitrate(rtp_bitrate, video_bitrate) {
   }
 }
 
-function _onIEEFrame(rssi, snr) {
+_onBitrate.isAsync = true;
+
+async function _onIEEFrame(rssi, snr) {
   // Check if we're in a pthread (Web Worker)
   if (typeof importScripts === "function") {
     // We're in a worker - send message to main thread
@@ -7440,6 +7444,8 @@ function _onIEEFrame(rssi, snr) {
     });
   }
 }
+
+_onIEEFrame.isAsync = true;
 
 var stringToUTF8OnStack = str => {
   var size = lengthBytesUTF8(str) + 1;

@@ -125,7 +125,7 @@ export fn deinit_zig() void {
 
 /// Process incoming packet data
 export fn handle_data(data: [*]const u8, len: usize, attrib: *const RxPktAttrib) void {
-    process_packet(data[0..len], attrib) catch |err| {
+    process_packet_light(data[0..len], attrib) catch |err| {
         zig_err("Packet processing error: {any}\n", .{err});
     };
 }
@@ -153,14 +153,21 @@ fn process_packet(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
     const avg_snr = @divTrunc(attrib.snr[0] + attrib.snr[1], 2);
     os.onIEEFrame(rssi_dbm, avg_snr);
 
-    //zig_print("Processing valid WiFi frame\n", .{});
+    zig_print("Processing valid WiFi frame\n", .{});
 
     // Thread-safe packet processing
-    //mutex.?.lock();
-    //defer mutex.?.unlock();
+    mutex.?.lock();
+    defer mutex.?.unlock();
 
     // Check if packet belongs to our video channel
-    //if (frame.matchesChannelID(WifiConfig.video_channel_id_bytes)) {
-    //    aggregator.?.process_packet(packet_data[ieee80211_header.len..], 0, 0, 0);
-    //}
+    if (frame.matchesChannelID(WifiConfig.video_channel_id_bytes)) {
+        aggregator.?.process_packet(packet_data[ieee80211_header.len..], 0, 0, 0);
+    }
+}
+
+fn process_packet_light(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
+    _ = packet_data;
+    const rssi_dbm = -(std.math.maxInt(i8) - @as(i8, @intCast(@divTrunc(attrib.rssi[0] + attrib.rssi[1], 2))));
+    const avg_snr = @divTrunc(attrib.snr[0] + attrib.snr[1], 2);
+    os.onIEEFrame(rssi_dbm, avg_snr);
 }

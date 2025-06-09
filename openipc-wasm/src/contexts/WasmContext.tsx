@@ -134,8 +134,8 @@ class VideoSystem {
     });
   }
 
-  private handleFrame(frame: VideoFrame): void {
-    console.log(frame);
+  private async handleFrame(frame: VideoFrame): Promise<void> {
+    //console.log(frame);
     if (!this.canvas || !this.ctx) return;
 
     // Resize canvas if needed
