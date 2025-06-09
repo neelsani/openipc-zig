@@ -149,7 +149,9 @@ fn process_packet(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
         // Invalid frames are common, don't spam logs
         return;
     }
-    os.onIEEFrame(@divTrunc(@as(i8, @bitCast(attrib.rssi[0])) + @as(i8, @bitCast(attrib.rssi[1])), 2), @divTrunc(attrib.snr[0] + attrib.snr[1], 2)); // this is supposed to show after valid packet but here for debug
+    const rssi_dbm = -(std.math.maxInt(i8) - @as(i8, @intCast(@divTrunc(attrib.rssi[0] + attrib.rssi[1], 2))));
+    const avg_snr = @divTrunc(attrib.snr[0] + attrib.snr[1], 2);
+    os.onIEEFrame(rssi_dbm, avg_snr);
 
     //zig_print("Processing valid WiFi frame\n", .{});
 

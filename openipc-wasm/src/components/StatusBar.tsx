@@ -165,8 +165,8 @@ export const StatusBar: React.FC = () => {
       icon: Signal,
       label: 'Signal',
       color: '#ef4444',
-      minVal: -90,
-      maxVal: -30,
+      minVal: -127,
+      maxVal: 0,
       unit: 'dBm',
       iconColor: 'text-gray-600'
     },

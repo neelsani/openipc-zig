@@ -30,10 +30,10 @@ pub const BitrateCalculator = struct {
     }
 
     pub fn getBitrateMbps(self: *const BitrateCalculator) f64 {
-        return self.current_bitrate_bps / 1_000_000.0;
+        return self.current_bitrate_bps / 1024 / 1024;
     }
 
     pub fn getBitrateKbps(self: *const BitrateCalculator) f64 {
-        return self.current_bitrate_bps / 1_000.0;
+        return self.current_bitrate_bps / 1024;
     }
 };
