@@ -43,7 +43,7 @@ pub const RxPktAttrib = extern struct {
     stbc: u8,
     ldpc: u8,
     sgi: u8,
-    rssi: [2]i8,
+    rssi: [2]u8,
     snr: [2]i8,
     pkt_rpt_type: u32,
 };
@@ -149,7 +149,7 @@ fn process_packet(packet_data: []const u8, attrib: *const RxPktAttrib) !void {
         // Invalid frames are common, don't spam logs
         return;
     }
-    os.onIEEFrame(@divTrunc(attrib.rssi[0] + attrib.rssi[1], 2), @divTrunc(attrib.snr[0] + attrib.snr[1], 2)); // this is supposed to show after valid packet but here for debug
+    os.onIEEFrame(@divTrunc(@as(i8, @bitCast(attrib.rssi[0])) + @as(i8, @bitCast(attrib.rssi[1])), 2), @divTrunc(attrib.snr[0] + attrib.snr[1], 2)); // this is supposed to show after valid packet but here for debug
 
     //zig_print("Processing valid WiFi frame\n", .{});
 
