@@ -112,16 +112,10 @@ const MetricCard: React.FC<{
 
 const SignalBars: React.FC<{ rssi: number }> = ({ rssi }) => {
   const getSignalBars = (rssi: number) => {
-    if (rssi >= -65) return { bars: 4, color: 'bg-green-500' };
-    
-    // Good signal (3 bars)
-    if (rssi >= -75) return { bars: 3, color: 'bg-green-400' };
-    
-    // Fair signal (2 bars) - starting to see some degradation
-    if (rssi >= -85) return { bars: 2, color: 'bg-yellow-500' };
-    
-    // Weak signal (1 bar) - minimal connectivity
-    if (rssi >= -100) return { bars: 1, color: 'bg-orange-500' };
+    if (rssi > -65) return { bars: 4, color: 'bg-green-500' };
+    if (rssi > -75) return { bars: 3, color: 'bg-yellow-500' };
+    if (rssi > -90) return { bars: 2, color: 'bg-orange-500' };
+    return { bars: 1, color: 'bg-red-500' };
   };
 
   const signal = getSignalBars(rssi);
