@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
 	int arg1 = (argc >= 2) ? std::atoi(argv[1]) : 0;
 	int arg2 = (argc >= 3) ? std::atoi(argv[2]) : 161;
 
-	startReceiver(1, static_cast<ChannelWidth_t>(arg1), arg2);
+	startReceiver(0, static_cast<ChannelWidth_t>(arg1), arg2);
 	std::cin.get();
 	stopReceiver();
 	std::cout << "HELLO" << std::endl;
