@@ -20,7 +20,7 @@ pub fn init(allocator: std.mem.Allocator) void {
 }
 export fn handle_Rtpdata(data: [*]const u8, len: u16) void {
     rtp_bitrate_calc.addBytes(data[0..len].len);
-    handleRtp1(depacketizer.?.allocator, data[0..len]);
+    handleRtp(depacketizer.?.allocator, data[0..len]);
     zig_print("rtp -> {d} mbps   video ->  {d} mbps\n", .{ rtp_bitrate_calc.getBitrateMbps(), video_bitrate_calc.getBitrateMbps() });
 }
 
