@@ -713,8 +713,8 @@ function initMemory() {
   if (Module["wasmMemory"]) {
     wasmMemory = Module["wasmMemory"];
   } else {
-    var INITIAL_MEMORY = Module["INITIAL_MEMORY"] || 134217728;
-    assert(INITIAL_MEMORY >= 16777216, "INITIAL_MEMORY should be larger than STACK_SIZE, was " + INITIAL_MEMORY + "! (STACK_SIZE=" + 16777216 + ")");
+    var INITIAL_MEMORY = Module["INITIAL_MEMORY"] || 268435456;
+    assert(INITIAL_MEMORY >= 33554432, "INITIAL_MEMORY should be larger than STACK_SIZE, was " + INITIAL_MEMORY + "! (STACK_SIZE=" + 33554432 + ")");
     /** @suppress {checkTypes} */ wasmMemory = new WebAssembly.Memory({
       "initial": INITIAL_MEMORY / 65536,
       // In theory we should not need to emit the maximum if we want "unlimited"
@@ -722,7 +722,7 @@ function initMemory() {
       // https://github.com/emscripten-core/emscripten/issues/14130
       // And in the pthreads case we definitely need to emit a maximum. So
       // always emit one.
-      "maximum": 32768,
+      "maximum": 16384,
       "shared": true
     });
   }
@@ -1259,7 +1259,7 @@ var PThread = {
     }
   },
   initMainThread() {
-    var pthreadPoolSize = 3;
+    var pthreadPoolSize = 4;
     // Start loading up the Worker pool, if requested.
     while (pthreadPoolSize--) {
       PThread.allocateUnusedWorker();
@@ -5759,7 +5759,7 @@ var handleException = e => {
   checkStackCookie();
   if (e instanceof WebAssembly.RuntimeError) {
     if (_emscripten_stack_get_current() <= 0) {
-      err("Stack overflow detected.  You can try increasing -sSTACK_SIZE (currently set to 16777216)");
+      err("Stack overflow detected.  You can try increasing -sSTACK_SIZE (currently set to 33554432)");
     }
   }
   quit_(1, e);
@@ -6742,7 +6742,7 @@ var __emscripten_init_main_thread_js = tb => {
   // Pass the thread address to the native code where they stored in wasm
   // globals which act as a form of TLS. Global constructors trying
   // to access this value will read the wrong value, but that is UB anyway.
-  __emscripten_thread_init(tb, /*is_main=*/ !ENVIRONMENT_IS_WORKER, /*is_runtime=*/ 1, /*can_block=*/ !ENVIRONMENT_IS_WEB, /*default_stacksize=*/ 16777216, /*start_profiling=*/ false);
+  __emscripten_thread_init(tb, /*is_main=*/ !ENVIRONMENT_IS_WORKER, /*is_runtime=*/ 1, /*can_block=*/ !ENVIRONMENT_IS_WEB, /*default_stacksize=*/ 33554432, /*start_profiling=*/ false);
   PThread.threadInitTLS();
 };
 
@@ -7135,15 +7135,16 @@ function _clock_time_get(clk_id, ignored_precision, ptime) {
 async function _displayFrame(data_ptr, data_len, codec_type, profile, is_key_frame) {
   // Check if we're in a pthread (Web Worker)
   if (typeof importScripts === "function") {
-    // We're in a worker - get frame data and send to main thread
+    // We're in a worker - use transferable objects for better performance
     var frameData = new Uint8Array(Module.HEAPU8.buffer, data_ptr, data_len);
     var frameDataCopy = new Uint8Array(frameData);
     // Create a copy
+    // Transfer the array buffer for zero-copy performance
     self.postMessage({
       cmd: "callHandler",
       handler: "displayFrameReact",
       args: [ frameDataCopy, codec_type, profile, is_key_frame ]
-    });
+    }, [ frameDataCopy.buffer ]);
   }
 }
 
@@ -7164,7 +7165,7 @@ var getHeapMax = () => // Stay one Wasm page short of 4GB: while e.g. Chrome is 
 // full 4GB Wasm memories, the size will wrap back to 0 bytes in Wasm side
 // for any code that deals with heap sizes, which would require special
 // casing all heap size related code to treat 0 specially.
-2147483648;
+1073741824;
 
 var alignMemory = (size, alignment) => {
   assert(alignment, "alignment argument is required");

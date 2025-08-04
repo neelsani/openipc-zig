@@ -84,11 +84,31 @@ const DepacketizedFrame = struct {
     }
 };
 
-// Fixed-size buffer for fragmentation
-const MAX_FRAGMENT_SIZE = 64 * 1024;
-const MAX_FRAME_SIZE = 1024 * 1024;
-const MAX_TEMP_SIZE = 64 * 1024;
+// Fixed-size buffer for fragmentation - increased for higher bitrates
+const MAX_FRAGMENT_SIZE = 256 * 1024; // Increased from 64KB
+const MAX_FRAME_SIZE = 2 * 1024 * 1024; // Increased from 1MB
+const MAX_TEMP_SIZE = 256 * 1024; // Increased from 64KB
 const MAX_PARAM_SIZE = 1024;
+
+// Ring buffer for frame data optimization
+const FRAME_BUFFER_COUNT = 8;
+const FrameBufferPool = struct {
+    buffers: [FRAME_BUFFER_COUNT][MAX_FRAME_SIZE]u8,
+    current_idx: usize,
+
+    pub fn init() FrameBufferPool {
+        return FrameBufferPool{
+            .buffers = undefined,
+            .current_idx = 0,
+        };
+    }
+
+    pub fn getBuffer(self: *FrameBufferPool) []u8 {
+        const buffer = &self.buffers[self.current_idx];
+        self.current_idx = (self.current_idx + 1) % FRAME_BUFFER_COUNT;
+        return buffer;
+    }
+};
 
 const FragmentationState = struct {
     buffer: [MAX_FRAGMENT_SIZE]u8,

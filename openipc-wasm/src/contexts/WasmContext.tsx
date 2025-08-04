@@ -2,6 +2,27 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import MainModuleFactory, { type MainModule } from '../wasm';
 import type { LinkStats } from '../types/device';
 
+// Frame buffer pool for memory optimization
+class FramePool {
+  private pool: Uint8Array[] = [];
+  private readonly maxPoolSize = 8;
+
+  getFrame(size: number): Uint8Array {
+    const pooledFrame = this.pool.find(frame => frame.length >= size);
+    if (pooledFrame) {
+      this.pool = this.pool.filter(frame => frame !== pooledFrame);
+      return pooledFrame.subarray(0, size);
+    }
+    return new Uint8Array(size);
+  }
+
+  returnFrame(frame: Uint8Array): void {
+    if (this.pool.length < this.maxPoolSize && frame.length > 1024) {
+      this.pool.push(frame);
+    }
+  }
+}
+
 // Separate video system management
 class VideoSystem {
   private canvas: HTMLCanvasElement | null = null;
@@ -12,6 +33,8 @@ class VideoSystem {
   private pendingFrames: Array<{ chunk: EncodedVideoChunk; timestamp: number }> = [];
   private switchingCodec: boolean = false;
   private initialized: boolean = false;
+  private framePool: FramePool = new FramePool();
+  private readonly maxPendingFrames = 3; // Reduce pending frame buffer
 
   // Profile enum mappings from your Zig code
   private readonly H264Profile = {
@@ -96,17 +119,17 @@ class VideoSystem {
           return 'hev1.1.6.L93.B0'; // Default to main
       }
     }
-    
+
     throw new Error(`Unsupported codec type: ${codecType}`);
   }
 
   private getCodecConfig(codecType: number, profile: number) {
     const codecString = this.getCodecStringFromProfile(codecType, profile);
-    
+
     const baseConfig: VideoDecoderConfig = {
       codec: codecString,
       hardwareAcceleration: 'prefer-software' as const,
-      
+
     };
 
     // Special handling for H.265 hardware acceleration
@@ -120,7 +143,7 @@ class VideoSystem {
 
   private async createDecoder(codecType: number, profile: number): Promise<VideoDecoder> {
     const config = this.getCodecConfig(codecType, profile);
-    
+
     // Check codec support first
     const support = await VideoDecoder.isConfigSupported(config);
     if (!support.supported) {
@@ -135,21 +158,32 @@ class VideoSystem {
   }
 
   private async handleFrame(frame: VideoFrame): Promise<void> {
-    //console.log(frame);
-    if (!this.canvas || !this.ctx) return;
-
-    // Resize canvas if needed
-    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
-      this.canvas.width = frame.displayWidth;
-      this.canvas.height = frame.displayHeight;
+    if (!this.canvas || !this.ctx) {
+      frame.close();
+      return;
     }
 
-    // Draw frame
-    this.ctx.drawImage(frame, 0, 0);
-    frame.close();
+    try {
+      // Resize canvas if needed
+      if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
+        this.canvas.width = frame.displayWidth;
+        this.canvas.height = frame.displayHeight;
+      }
 
-    // Process pending frames after successful decode
-    this.processPendingFrames();
+      // Use requestAnimationFrame for smoother rendering
+      requestAnimationFrame(() => {
+        if (this.ctx) {
+          this.ctx.drawImage(frame, 0, 0);
+        }
+        frame.close();
+      });
+
+      // Process pending frames after successful decode
+      this.processPendingFrames();
+    } catch (error) {
+      console.error('Error handling frame:', error);
+      frame.close();
+    }
   }
 
   private handleDecoderError(error: DOMException): void {
@@ -184,16 +218,27 @@ class VideoSystem {
       await this.switchCodec(codecType, profile);
     }
 
+    // Frame dropping logic for high bitrate scenarios
+    if (this.pendingFrames.length > this.maxPendingFrames) {
+      console.warn(`Dropping frames, pending: ${this.pendingFrames.length}`);
+      // Keep only keyframes when overwhelmed
+      this.pendingFrames = this.pendingFrames.filter(f => f.chunk.type === 'key');
+    }
+
     // Ensure decoder exists
     if (!this.decoder) {
       this.decoder = await this.createDecoder(codecType, profile);
       await this.decoder.configure(this.getCodecConfig(codecType, profile));
     }
 
+    // Create a copy of frame data to avoid memory issues
+    const frameCopy = this.framePool.getFrame(frameData.length);
+    frameCopy.set(frameData);
+
     const chunk = new EncodedVideoChunk({
       type: isKeyFrame ? 'key' : 'delta',
       timestamp: performance.now() * 1000,
-      data: frameData
+      data: frameCopy
     });
 
     // Handle codec switching logic
@@ -225,9 +270,9 @@ class VideoSystem {
   }
 
   private async switchCodec(newCodecType: number, newProfile: number): Promise<void> {
-    console.log('Codec/Profile change detected:', 
+    console.log('Codec/Profile change detected:',
       `${this.currentCodec}/${this.currentProfile} -> ${newCodecType}/${newProfile}`);
-    
+
     // Close existing decoder
     if (this.decoder) {
       try {
@@ -286,9 +331,9 @@ interface WebAssemblyProviderProps {
   maxLogEntries?: number;
 }
 
-export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({ 
-  children, 
-  maxLogEntries = 100 
+export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
+  children,
+  maxLogEntries = 100
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [status, setStatus] = useState('Loading WebAssembly...');
@@ -307,18 +352,18 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
     codec: undefined,
     resolution: undefined
   });
-  
+
   const outputLogEntriesRef = useRef<string[]>([]);
   const moduleRef = useRef<MainModule | null>(null);
   const videoSystemRef = useRef<VideoSystem | null>(null);
 
   const addLogEntry = useCallback((text: string) => {
     outputLogEntriesRef.current.push(text);
-    
+
     if (outputLogEntriesRef.current.length > maxLogEntries) {
       outputLogEntriesRef.current.shift();
     }
-    
+
     setOutputLog(outputLogEntriesRef.current.join('\n'));
   }, [maxLogEntries]);
 
@@ -327,16 +372,16 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
       if (!videoSystemRef.current) {
         videoSystemRef.current = new VideoSystem();
       }
-      
+
       await videoSystemRef.current.processFrame(frameData, codecType, profile, isKeyFrame);
-      
+
       // Update stats
       setStats(prevStats => ({
         ...prevStats,
         frameCount: prevStats.frameCount + 1,
         codec: codecType === 0 ? 'H.264' : 'H.265'
       }));
-      
+
     } catch (error) {
       console.error('Frame processing error:', error);
       setError(`Frame processing failed: ${error}`);
@@ -356,7 +401,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
       ...prevStats,
       rtp_bitrate: rtp_bitrate,
       video_bitrate: video_bitrate,
-    
+
     }));
   }, []);
 
@@ -365,7 +410,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
     const checkSupport = async () => {
       const supported = typeof VideoDecoder !== 'undefined';
       setWebCodecsSupported(supported);
-      
+
       if (supported) {
         // Test basic codec support
         try {
@@ -378,7 +423,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
         }
       }
     };
-    
+
     checkSupport();
   }, []);
 
@@ -389,7 +434,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
 
       try {
         setError(null);
-        
+
         const moduleConfig = {
           canvas: null,
           print: addLogEntry,
@@ -412,11 +457,11 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
 
         const wasmModule = await MainModuleFactory(moduleConfig);
         moduleRef.current = wasmModule;
-        
+
         if (typeof window !== 'undefined') {
           (window as any).Module = wasmModule;
         }
-        
+
       } catch (error) {
         console.error('Failed to load WebAssembly module:', error);
         setError(`Failed to load WebAssembly module: ${error}`);
@@ -426,7 +471,7 @@ export const WebAssemblyProvider: React.FC<WebAssemblyProviderProps> = ({
     };
 
     initializeModule();
-    
+
     // Cleanup on unmount
     return () => {
       if (videoSystemRef.current) {
@@ -484,7 +529,7 @@ export const useWebAssemblyCanvas = (canvasRef: React.RefObject<HTMLCanvasElemen
     if (canvasRef.current) {
       setCanvas(canvasRef.current);
     }
-    
+
     return () => {
       setCanvas(null);
     };

@@ -66,7 +66,7 @@ pub const radiotap_header = [_]u8{
     MCS_KNOWN, 0x00, 0x00, // bitmap, flags, mcs_index
 };
 
-pub const RX_RING_SIZE = 40;
+pub const RX_RING_SIZE = 64; // Increased from 40 for better high-bitrate performance
 
 /// Equivalent of C's `rx_ring_item_t`
 pub const RxRingItem = struct {

@@ -147,7 +147,7 @@ npm run dev
 - **Latency**: < 50ms typical (air to display)
 - **Throughput**: Up to 50 Mbps video streams
 - **Optimal Settings**: 1080p 30fps at 1024 kbps bitrate for best performance
-- **Bitrate Limitations**: Video display may have issues above 1024 kbps bitrate
+- **Bitrate Limitations**: Video display may have issues above 1024 kbps bitrate (optimizations implemented)
 - **FEC Recovery**: Automatic error correction for lost packets
 - **Multi-threading**: Parallel processing for optimal performance
 
@@ -156,8 +156,17 @@ npm run dev
 For optimal performance with this receiver:
 - **Resolution**: 1920x1080 (1080p)
 - **Frame Rate**: 30 fps
-- **Bitrate**: 1024 kbps (higher bitrates may cause display issues)
+- **Bitrate**: 1024 kbps (higher bitrates supported with recent optimizations)
 - **Encoder**: H.264 or H.265
+
+### Performance Optimizations
+
+Recent optimizations for higher bitrate support:
+- **Increased Memory Limits**: WebAssembly memory expanded to 256MB initial, 1GB maximum
+- **Frame Buffer Pooling**: Reduced memory allocations and garbage collection
+- **Ring Buffer Optimization**: Larger ring buffers for packet processing
+- **Smart Frame Dropping**: Automatic frame dropping under high load
+- **Transferable Objects**: Zero-copy data transfer between workers
 
 ## 🐛 Troubleshooting
 
