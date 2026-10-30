@@ -185,7 +185,18 @@ zig build -Dlogging=true -Ddebug-logging=true
 
 ## 📄 License
 
-This project is open source. Please check individual component licenses for specific terms.
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
+
+See the full license text in the [LICENSE](./LICENSE) file.
+
+### Third-Party Components
+
+The following third-party components are included in this project and are also licensed under GPLv3-compatible licenses:
+
+- **wfb-ng** (WiFi Broadcast next generation) - GPLv3 — see [src/wifi/](src/wifi/) for the embedded source code
+- **zfec** (forward error correction library) - GPLv2 or later — see `src/wifi/fec.h` for the copyright notice
+
+All source code in this repository is covered by the GPLv3 license.
 
 ## 🔗 Related Projects
 
